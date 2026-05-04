@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(flutter pub *)",
+      "Bash(flutter clean *)",
+      "Bash(flutter analyze *)",
+      "Bash(flutter run *)",
+      "Bash(flutter build *)",
+      "Bash(flutter create *)",
+      "Bash(mv \"C:\\\\Users\\\\maxim\\\\cassa\\\\android\\\\app\\\\src\\\\main\\\\kotlin\\\\com\\\\example\\\\cassa1\" \"C:\\\\Users\\\\maxim\\\\cassa\\\\android\\\\app\\\\src\\\\main\\\\kotlin\\\\com\\\\naxim\")",
+      "Bash(mv \"C:\\\\Users\\\\maxim\\\\cassa\\\\android\\\\app\\\\src\\\\main\\\\kotlin\\\\com\\\\naxim\\\\cassa1\" \"C:\\\\Users\\\\maxim\\\\cassa\\\\android\\\\app\\\\src\\\\main\\\\kotlin\\\\com\\\\naxim\\\\cassafamily\")",
+      "Bash(mkdir -p \"C:\\\\Users\\\\maxim\\\\cassa\\\\android\\\\app\\\\src\\\\main\\\\kotlin\\\\com\\\\naxim\\\\cassafamily\")",
+      "Bash(cp \"C:\\\\Users\\\\maxim\\\\cassa\\\\android\\\\app\\\\src\\\\main\\\\kotlin\\\\com\\\\example\\\\cassa1\\\\MainActivity.kt\" \"C:\\\\Users\\\\maxim\\\\cassa\\\\android\\\\app\\\\src\\\\main\\\\kotlin\\\\com\\\\naxim\\\\cassafamily\\\\MainActivity.kt\")",
+      "Bash(rm -rf \"C:\\\\Users\\\\maxim\\\\cassa\\\\android\\\\app\\\\src\\\\main\\\\kotlin\\\\com\\\\example\")",
+      "Bash(cp \"C:/Users/maxim/cassa/android/app/src/main/kotlin/com/naxim/MainActivity.kt\" \"C:/Users/maxim/cassa/android/app/src/main/kotlin/com/naxim/cassafamily/MainActivity.kt\")",
+      "Bash(rm -rf \"C:/Users/maxim/cassa/android/app/src/main/kotlin/com/naxim/MainActivity.kt\" \"C:/Users/maxim/cassa/android/app/src/main/kotlin/com/example\")",
+      "PowerShell(Set-Content *)",
+      "Bash(dart pub *)"
+    ]
+  }
+}
