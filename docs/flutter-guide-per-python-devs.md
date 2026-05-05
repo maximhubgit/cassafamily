@@ -779,5 +779,166 @@ Cassa1 e un esempio compatto di app Flutter reale con:
 - **Riverpod** per state management reattivo
 - **UI responsiva** con Material Design 3
 - **Feature reali**: calcolo bilancio, chiusura mensile, esportazione CSV
+- **Input vocale con AI**: creazione transazioni tramite comando vocale e parsing intelligente
 
 L'intero codice e in `lib/` — esplora i file seguendo l'architettura a strati descritta sopra per comprendere ogni componente.
+
+---
+
+## 18. Input Vocale con AI: Speech-to-Text e OpenRouter
+
+Cassa1 permette di creare transazioni parlando al microfono. Il flusso unisce riconoscimento vocale locale e intelligenza artificiale cloud.
+
+### Flusso completo
+
+```
+Microfono → speech_to_text (locale) → testo trascritto
+    ↓
+OpenRouter API (Gemini Flash) → parsing JSON strutturato
+    ↓
+Dialogo di conferma → form pre-compilato → salvataggio transazione
+```
+
+### Pacchetti utilizzati
+
+| Pacchetto | Scopo |
+|-----------|-------|
+| `speech_to_text` | Riconoscimento vocale tramite i motori di sistema (Google/Apple) |
+| `http` | Chiamata REST a OpenRouter API |
+
+### Servizio VoiceTransactionService (lib/data/services/voice_transaction_service.dart)
+
+Il servizio coordina la trascrizione e l'analisi AI:
+
+```dart
+class VoiceTransactionService {
+  final SpeechToText _speech = SpeechToText();
+  final String openRouterApiKey;
+
+  Future<bool> initialize() async {
+    return await _speech.initialize(
+      onError: (error) => debugPrint('Speech error: $error'),
+    );
+  }
+
+  Future<void> startListening({
+    required Function(String) onResult,
+    required Function() onComplete,
+  }) async {
+    await _speech.listen(
+      onResult: (result) {
+        onResult(result.recognizedWords);
+        if (result.finalResult) onComplete();
+      },
+      localeId: 'it_IT',  // italiano
+      listenMode: ListenMode.confirmation,
+    );
+  }
+}
+```
+
+### Parsing con AI (OpenRouter)
+
+Una volta ottenuto il testo trascritto, viene inviato a OpenRouter con un prompt che include:
+
+1. **La lista dei soggetti disponibili** (con ID e nome)
+2. **La lista delle voci** raggruppate per gruppo
+3. **Il testo trascritto** dell'utente
+
+L'AI (modello `google/gemini-2.0-flash-001`) restituisce un JSON strutturato:
+
+```json
+{
+  "type": "expense",
+  "amount": 15.0,
+  "subjectName": "Massimo",
+  "entryName": "Pranzo",
+  "note": "",
+  "confidence": 0.9
+}
+```
+
+Il servizio mappa poi i nomi agli ID reali tramite fuzzy matching:
+
+```dart
+Subject? _fuzzyFindSubject(String name, List<Subject> subjects) {
+  final lowerName = name.toLowerCase();
+  // Exact match
+  var match = subjects.where((s) => s.name.toLowerCase() == lowerName);
+  if (match.isNotEmpty) return match.first;
+  // Contains match
+  match = subjects.where((s) => s.name.toLowerCase().contains(lowerName));
+  if (match.isNotEmpty) return match.first;
+  return null;
+}
+```
+
+### Widget VoiceTransactionDialog (lib/ui/widgets/voice_transaction_dialog.dart)
+
+Il dialogo gestisce l'intero ciclo vocale:
+
+```dart
+class VoiceTransactionDialog extends ConsumerStatefulWidget {
+  // Stati del dialogo:
+  // - idle: pronto, mostra icona microfono
+  // - listening: sta registrando (icona rossa, mostra testo in tempo reale)
+  // - processing: invia a OpenRouter, mostra spinner
+  // - confirm: mostra i dati parsati, l'utente conferma
+  // - error: errore, permette retry
+}
+```
+
+### Integrazione nell'UI
+
+I pulsanti microfono sono stati aggiunti nelle AppBar di:
+- `subject_detail_screen.dart` (schermata dettaglio soggetto)
+- `all_transactions_screen.dart` (tutti i movimenti)
+
+```dart
+IconButton(
+  icon: const Icon(Icons.mic),
+  tooltip: 'Nuova transazione vocale',
+  onPressed: () => _showVoiceDialog(context, ref, subject),
+),
+```
+
+Il metodo `_showVoiceDialog` apre il dialogo vocale, attende il risultato e poi pre-compila il form di aggiunta:
+
+```dart
+void _showVoiceDialog(BuildContext context, WidgetRef ref, Subject subject) async {
+  final result = await showDialog<VoiceTransactionResult>(
+    context: context,
+    builder: (dialogContext) => VoiceTransactionDialog(
+      subjects: widget.subjects,
+      entries: widget.entries,
+      groups: widget.groups,
+    ),
+  );
+
+  if (result != null && !result.isError) {
+    _showAddDialogFromVoice(context, ref, result);
+  }
+}
+```
+
+### Configurazione necessaria
+
+1. **Permessi Android** (`android/app/src/main/AndroidManifest.xml`):
+```xml
+<uses-permission android:name="android.permission.RECORD_AUDIO"/>
+```
+
+2. **API Key**: impostare la variabile d'ambiente prima di avviare l'app:
+```bash
+flutter run -d edge --dart-define=OPENROUTER_API_KEY=tua_chiave_api
+```
+
+### Esempio di utilizzo
+
+L'utente tocca il microfono, dice: *"uscita Massimo pranzo 15 euro"*, l'app:
+1. Trascrive in tempo reale col microfono
+2. Invia il testo a OpenRouter: "Riconosci tipo=expense, soggetto=Massimo, voce=Pranzo, amount=15"
+3. Mostra la conferma: Tipo=Uscita, Importo=€15.00, Soggetto=Massimo, Voce=Pranzo (confidenza 90%)
+4. L'utente conferma → la transazione viene salvata
+
+**Vantaggio del parsing AI**: gestisce automaticamente sinonimi ("pranzo" → voce nel gruppo "Spese alimentari"), numeri scritti ("quindici" → 15.0), e ordine delle parole libero.

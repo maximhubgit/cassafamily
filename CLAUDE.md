@@ -12,6 +12,9 @@ Cassa1 is a Flutter app for personal/family budget management. Users track incom
 # Run on Edge browser (primary dev target)
 flutter run -d edge
 
+# Run with OpenRouter API key for voice features
+flutter run -d edge --dart-define=OPENROUTER_API_KEY=your_key
+
 # Run on Android emulator
 flutter emulators          # list available emulators
 flutter emulators --launch <AVD_NAME>
@@ -49,6 +52,7 @@ UI (ConsumerWidget) → Provider (StreamProvider) → Repository → Service (Fi
   - `FirebaseService` — all Firestore CRUD operations and real-time streams (`_db.collection(...).snapshots()`)
   - `CacheService` — local caching via `shared_preferences`, used as fallback/optimistic cache by repositories
   - `ExportService` — generates CSV from transactions data and shares via system share dialog (uses `csv`, `path_provider`, `share_plus` packages)
+  - `VoiceTransactionService` — voice-to-transaction via `speech_to_text` (local STT) + OpenRouter API (AI parsing). Returns structured `VoiceTransactionResult` with fuzzy-matched subject/entry IDs
 
 - **Repositories** (`lib/data/repositories/`): Wrap `FirebaseService` + `CacheService`. Implement dual-source streaming: return cached data first, then yield Firestore updates. Expose `add()`, `update()`, `delete()`, and `isEntryLinked()` methods.
 
@@ -123,3 +127,15 @@ The export button is on the "Tutti i movimenti" screen (`all_transactions_screen
 - **Deprecated APIs**: `withOpacity` → `withValues()`, `surfaceVariant` → `surfaceContainerHighest`
 - **Firebase config**: Manual setup in `lib/firebase_options.dart` (not using FlutterFire CLI). Android needs `google-services.json` in `android/app/` for APK builds. Android package name: `com.maxim.cassafamily`
 - **Auth**: Anonymous sign-in via `AuthNotifier.signInAnonymously()`. Auth state managed by `authStateProvider` (stream of `User?`). No email/password or social login.
+
+### Voice Input Feature
+
+Users can create transactions by speaking into the microphone. The flow: speech_to_text transcribes audio → OpenRouter API (Gemini Flash) parses text into structured JSON → confirmation dialog with pre-filled fields.
+
+- **Dependencies**: `speech_to_text` (local STT), `http` (OpenRouter API calls)
+- **Service**: `VoiceTransactionService` (`lib/data/services/voice_transaction_service.dart`) — transcribes, sends to AI, fuzzy-matches names to IDs
+- **Widget**: `VoiceTransactionDialog` (`lib/ui/widgets/voice_transaction_dialog.dart`) — manages recording states (idle/listening/processing/confirm/error)
+- **Integration**: Mic button added to AppBars in `subject_detail_screen.dart` and `all_transactions_screen.dart`
+- **Environment**: Requires `OPENROUTER_API_KEY` env var: `flutter run -d edge --dart-define=OPENROUTER_API_KEY=your_key`
+- **Android**: Requires `RECORD_AUDIO` permission in `AndroidManifest.xml`
+- **Voice command example**: "uscita Massimo pranzo 15 euro" → AI returns JSON with type=expense, subjectId, entryId, amount=15.0

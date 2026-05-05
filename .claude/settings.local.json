@@ -15,7 +15,8 @@
       "Bash(cp \"C:/Users/maxim/cassa/android/app/src/main/kotlin/com/naxim/MainActivity.kt\" \"C:/Users/maxim/cassa/android/app/src/main/kotlin/com/naxim/cassafamily/MainActivity.kt\")",
       "Bash(rm -rf \"C:/Users/maxim/cassa/android/app/src/main/kotlin/com/naxim/MainActivity.kt\" \"C:/Users/maxim/cassa/android/app/src/main/kotlin/com/example\")",
       "PowerShell(Set-Content *)",
-      "Bash(dart pub *)"
+      "Bash(dart pub *)",
+      "PowerShell(flutter analyze *)"
     ]
   }
 }

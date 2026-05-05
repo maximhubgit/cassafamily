@@ -11,6 +11,8 @@ import 'package:cassa1/data/models/subject.dart';
 import 'package:cassa1/data/models/group.dart';
 import 'package:cassa1/data/models/entry.dart';
 import 'package:cassa1/data/services/export_service.dart';
+import 'package:cassa1/data/services/voice_transaction_service.dart';
+import 'package:cassa1/ui/widgets/voice_transaction_dialog.dart';
 
 class AllTransactionsScreen extends ConsumerWidget {
   const AllTransactionsScreen({super.key});
@@ -170,6 +172,11 @@ class _AllTransactionsContentState extends ConsumerState<_AllTransactionsContent
               entries: widget.entries,
               groups: widget.groups,
             ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.mic),
+            tooltip: 'Nuova transazione vocale',
+            onPressed: () => _showVoiceDialog(context, ref),
           ),
           IconButton(
             icon: const Icon(Icons.add),
@@ -810,6 +817,235 @@ class _AllTransactionsContentState extends ConsumerState<_AllTransactionsContent
                     createdAt: t.createdAt,
                   );
                   repo.update(updated);
+                  Navigator.pop(dialogContext);
+                },
+                child: const Text(AppStrings.save),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  void _showVoiceDialog(BuildContext context, WidgetRef ref) async {
+    final result = await showDialog<VoiceTransactionResult>(
+      context: context,
+      builder: (dialogContext) => VoiceTransactionDialog(
+        subjects: widget.subjects,
+        entries: widget.entries,
+        groups: widget.groups,
+        preselectedSubjectId: null,
+      ),
+    );
+
+    if (result != null && !result.isError) {
+      _showAddDialogFromVoice(context, ref, result);
+    }
+  }
+
+  void _showAddDialogFromVoice(
+    BuildContext context,
+    WidgetRef ref,
+    VoiceTransactionResult voiceResult,
+  ) {
+    final amountController = TextEditingController(text: voiceResult.amount.toString());
+    final noteController = TextEditingController(text: voiceResult.note ?? '');
+    TransactionType selectedType = voiceResult.type;
+    String? selectedEntryId = voiceResult.entryId;
+    String? selectedFromSubjectId = voiceResult.fromSubjectId;
+    String? selectedToSubjectId = voiceResult.toSubjectId;
+    String? selectedSubjectId = voiceResult.subjectId;
+    DateTime selectedDate;
+    if (voiceResult.date != null) {
+      selectedDate = voiceResult.date!;
+    } else {
+      final now = DateTime.now();
+      selectedDate = (_selectedMonth.year == now.year && _selectedMonth.month == now.month)
+          ? DateTime(now.year, now.month, now.day)
+          : DateTime(_selectedMonth.year, _selectedMonth.month + 1, 0);
+    }
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setState) {
+          final filteredGroups = widget.groups.where((g) {
+            if (selectedType == TransactionType.income) return g.type == GroupType.income;
+            if (selectedType == TransactionType.expense || selectedType == TransactionType.anticipi) return g.type == GroupType.expense;
+            return true;
+          }).toList();
+
+          final filteredEntries = widget.entries.where((e) {
+            return filteredGroups.any((g) => g.id == e.groupId);
+          }).toList();
+
+          return AlertDialog(
+            title: const Text('Nuovo movimento (vocale)'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButton<TransactionType>(
+                    value: selectedType,
+                    isExpanded: true,
+                    items: const [
+                      DropdownMenuItem(value: TransactionType.income, child: Text('Entrata')),
+                      DropdownMenuItem(value: TransactionType.expense, child: Text('Uscita')),
+                      DropdownMenuItem(value: TransactionType.transfer, child: Text('Trasferimento')),
+                      DropdownMenuItem(value: TransactionType.anticipi, child: Text('Anticipo')),
+                    ],
+                    onChanged: (value) => setState(() => selectedType = value!),
+                  ),
+                  const SizedBox(height: 12),
+                  InkWell(
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: dialogContext,
+                        initialDate: selectedDate,
+                        firstDate: DateTime(2000),
+                        lastDate: DateTime(2100),
+                      );
+                      if (picked != null) setState(() => selectedDate = picked);
+                    },
+                    child: InputDecorator(
+                      decoration: const InputDecoration(labelText: 'Data *'),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(DateFormat('dd/MM/yyyy').format(selectedDate)),
+                          const Icon(Icons.calendar_today, size: 16),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: amountController,
+                    decoration: InputDecoration(labelText: '${AppStrings.amount} *'),
+                    keyboardType: TextInputType.number,
+                  ),
+                  const SizedBox(height: 12),
+                  if (selectedType == TransactionType.transfer) ...[
+                    DropdownButton<String>(
+                      value: selectedFromSubjectId,
+                      isExpanded: true,
+                      hint: const Text('Da soggetto *'),
+                      items: widget.subjects.map((s) {
+                        return DropdownMenuItem(value: s.id, child: Text(s.name));
+                      }).toList(),
+                      onChanged: (value) => setState(() => selectedFromSubjectId = value),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButton<String>(
+                      value: selectedToSubjectId,
+                      isExpanded: true,
+                      hint: const Text('A soggetto *'),
+                      items: widget.subjects.map((s) {
+                        return DropdownMenuItem(value: s.id, child: Text(s.name));
+                      }).toList(),
+                      onChanged: (value) => setState(() => selectedToSubjectId = value),
+                    ),
+                  ],
+                  if (selectedType != TransactionType.transfer) ...[
+                    DropdownButton<String>(
+                      value: selectedSubjectId,
+                      isExpanded: true,
+                      hint: const Text('Soggetto *'),
+                      items: widget.subjects.map((s) {
+                        return DropdownMenuItem(value: s.id, child: Text(s.name));
+                      }).toList(),
+                      onChanged: (value) => setState(() => selectedSubjectId = value),
+                    ),
+                    const SizedBox(height: 12),
+                    if (filteredEntries.isNotEmpty)
+                      DropdownButton<String>(
+                        value: selectedEntryId,
+                        isExpanded: true,
+                        hint: const Text('Seleziona voce *'),
+                        items: filteredEntries.map((e) {
+                          final group = _findGroup(e.groupId);
+                          return DropdownMenuItem(
+                            value: e.id,
+                            child: Text('${e.name} (${group?.name ?? ""})'),
+                          );
+                        }).toList(),
+                        onChanged: (value) => setState(() => selectedEntryId = value),
+                      ),
+                  ],
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: noteController,
+                    decoration: const InputDecoration(labelText: AppStrings.note),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text(AppStrings.cancel),
+              ),
+              TextButton(
+                onPressed: () {
+                  final amountText = amountController.text.trim();
+                  final amount = double.tryParse(amountText);
+
+                  if (amount == null || amount <= 0) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Inserisci un importo valido'), backgroundColor: Colors.red),
+                    );
+                    return;
+                  }
+
+                  if (selectedType == TransactionType.transfer) {
+                    if (selectedFromSubjectId == null) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Seleziona il soggetto di origine'), backgroundColor: Colors.red),
+                      );
+                      return;
+                    }
+                    if (selectedToSubjectId == null) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Seleziona il soggetto di destinazione'), backgroundColor: Colors.red),
+                      );
+                      return;
+                    }
+                    if (selectedFromSubjectId == selectedToSubjectId) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('I soggetti di origine e destinazione devono essere diversi'), backgroundColor: Colors.red),
+                      );
+                      return;
+                    }
+                  } else {
+                    if (selectedSubjectId == null) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Seleziona un soggetto'), backgroundColor: Colors.red),
+                      );
+                      return;
+                    }
+                    if (selectedEntryId == null) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Seleziona una voce'), backgroundColor: Colors.red),
+                      );
+                      return;
+                    }
+                  }
+
+                  final repo = ref.read(transactionRepositoryProvider);
+                  final newTx = AppTransaction(
+                    id: DateTime.now().millisecondsSinceEpoch.toString(),
+                    type: selectedType,
+                    amount: amount,
+                    date: selectedDate,
+                    note: noteController.text.isEmpty ? null : noteController.text,
+                    subjectId: selectedType != TransactionType.transfer ? selectedSubjectId : null,
+                    entryId: selectedEntryId,
+                    fromSubjectId: selectedType == TransactionType.transfer ? selectedFromSubjectId : null,
+                    toSubjectId: selectedType == TransactionType.transfer ? selectedToSubjectId : null,
+                    createdAt: DateTime.now(),
+                  );
+                  repo.add(newTx);
                   Navigator.pop(dialogContext);
                 },
                 child: const Text(AppStrings.save),
