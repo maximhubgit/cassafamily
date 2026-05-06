@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
@@ -17,7 +18,7 @@ class VoiceTransactionService {
     try {
       return await _speech.initialize(
         onError: (error) => debugPrint('Speech error: $error'),
-        onStatus: (status) => debugPrint('Speech status: $status'),
+        onStatus: _handleStatusChange,
       );
     } catch (e) {
       debugPrint('Speech init error: $e');
@@ -25,34 +26,93 @@ class VoiceTransactionService {
     }
   }
 
-  bool get isListening => _speech.isListening;
+    bool get isListening => _speech.isListening;
+
+  Timer? _statusCheckTimer;
+  Timer? _maxTimer;
+  bool _completed = false;
+  bool _isActive = false;
+  Function()? _onComplete;
+  Function(String)? _onResultCallback;
 
   Future<void> startListening({
     required Function(String) onResult,
     required Function() onComplete,
   }) async {
+    _completed = false;
+    _isActive = true;
+    _onComplete = onComplete;
+    _onResultCallback = onResult;
+    _statusCheckTimer?.cancel();
+    _maxTimer?.cancel();
+
     await _speech.listen(
       onResult: (result) {
-        onResult(result.recognizedWords);
-        if (result.finalResult) {
-          onComplete();
-        }
+        if (_completed || !_isActive) return;
+        _onResultCallback?.call(result.recognizedWords);
       },
-      localeId: 'it_IT',
-      listenFor: const Duration(seconds: 60),
-      pauseFor: const Duration(seconds: 5),
       listenOptions: stt.SpeechListenOptions(
-        listenMode: stt.ListenMode.confirmation,
+        listenMode: stt.ListenMode.dictation,
       ),
     );
+
+    // Check every 500ms: on web/Edge the plugin may stop without calling onStatus
+    _statusCheckTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+      if (_completed) {
+        _statusCheckTimer?.cancel();
+        return;
+      }
+      if (!_speech.isListening && _isActive) {
+        debugPrint('Voice: isListening became false, completing');
+        _statusCheckTimer?.cancel();
+        _completed = true;
+        _isActive = false;
+        _maxTimer?.cancel();
+        _onComplete?.call();
+      }
+    });
+
+    // Safety net: auto-stop after 60 seconds
+    _maxTimer = Timer(const Duration(seconds: 60), () {
+      if (!_completed && _isActive) {
+        debugPrint('Voice: 60s timeout, stopping');
+        _completed = true;
+        _isActive = false;
+        _statusCheckTimer?.cancel();
+        _speech.stop();
+        _onComplete?.call();
+      }
+    });
   }
 
   Future<void> stopListening() async {
+    if (!_isActive) return;
+    _completed = true;
+    _isActive = false;
+    _statusCheckTimer?.cancel();
+    _maxTimer?.cancel();
     await _speech.stop();
+    _onComplete?.call();
   }
 
   Future<void> cancelListening() async {
+    _completed = true;
+    _isActive = false;
+    _statusCheckTimer?.cancel();
+    _maxTimer?.cancel();
     await _speech.cancel();
+  }
+
+  void _handleStatusChange(String status) {
+    debugPrint('Speech status: $status');
+    if ((status == 'notListening' || status == 'done') && _isActive && !_completed) {
+      debugPrint('Voice: status-based completion');
+      _completed = true;
+      _isActive = false;
+      _statusCheckTimer?.cancel();
+      _maxTimer?.cancel();
+      _onComplete?.call();
+    }
   }
 
   Future<VoiceTransactionResult> processVoiceTransaction({

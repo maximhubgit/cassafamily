@@ -264,11 +264,6 @@ class _VoiceTransactionDialogState extends ConsumerState<VoiceTransactionDialog>
             },
             child: const Text('Annulla'),
           ),
-          IconButton(
-            icon: const Icon(Icons.stop, color: Colors.red),
-            onPressed: () => _service.stopListening(),
-            tooltip: 'Ferma registrazione',
-          ),
         ];
 
       case _VoiceStatus.processing:
