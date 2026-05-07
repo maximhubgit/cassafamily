@@ -17,7 +17,11 @@
       "PowerShell(Set-Content *)",
       "Bash(dart pub *)",
       "PowerShell(flutter analyze *)",
-      "Bash(git restore *)"
+      "Bash(git restore *)",
+      "Bash(grep -v \"^$\")",
+      "Bash(flutter --version)",
+      "Bash(Select-String -Pattern \"voice_transaction_dialog\")",
+      "Bash(git commit *)"
     ]
   }
 }

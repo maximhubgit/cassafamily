@@ -108,10 +108,31 @@ Forms for adding/editing transactions (`subject_detail_screen.dart`, `all_transa
 - Dropdown with 4 types: Entrata, Uscita, Trasferimento, Anticipo
 - Date picker (required): if current month selected → today's date; otherwise → last day of selected month
 - For `transfer`: "Da soggetto" + "A soggetto" selectors (both required, must be different)
-- For `income`/`expense`/`anticipi`: subject selector + entry (voce) selector filtered by group type
+- For `income`/`expense`/`anticipi`: subject selector + entry (voce) selector using `showEntryPicker()`
 - Amount field (required, must be > 0)
 - Note field (optional)
 - All fields marked with `*` are mandatory; validation shows `SnackBar` with error message on save
+
+### Entry Picker Pattern
+
+The `showEntryPicker()` function (`lib/ui/widgets/entry_picker.dart`) provides a two-level entry selection UI (group → entries) via a modal bottom sheet. Used in transaction forms instead of a flat DropdownButton:
+```dart
+final entryId = await showEntryPicker(
+  context: context,
+  groups: groups,
+  entries: entries,
+  selectedType: selectedType,
+  selectedEntryId: selectedEntryId,
+);
+```
+The picker filters entries by group type (income/expense) based on `selectedType`, shows groups with expandable headers, and returns the selected entry ID.
+
+### UI Patterns
+
+- **AppDrawer** (`lib/ui/widgets/app_drawer.dart`): Left drawer with subjects list showing current month balances, voice transaction button (mic icon), CSV export/import, theme toggle, and logout
+- **Home Screen** (`lib/ui/screens/home/home_screen.dart`): Grid of subject cards showing current month balance, "Ultime transazioni" card with quick totals, and quick action buttons (Groups, Entries, Voice, Reports)
+- **Subject Detail** (`lib/ui/screens/subjects/subject_detail_screen.dart`): Monthly transaction list with `_showAnticipi` switch to show/hide anticipi transactions (anticipi are always included in balance totals)
+- **Current Month Filtering**: Home screen and AppDrawer filter transactions using `currentMonthTx()` helper - only show current month data in balances and cards
 
 ### Export Feature
 
