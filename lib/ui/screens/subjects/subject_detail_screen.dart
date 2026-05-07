@@ -12,6 +12,7 @@ import 'package:cassa1/data/models/group.dart';
 import 'package:cassa1/data/models/entry.dart';
 import 'package:cassa1/data/services/voice_transaction_service.dart';
 import 'package:cassa1/ui/widgets/voice_transaction_dialog.dart';
+import 'package:cassa1/ui/widgets/entry_picker.dart';
 
 class SubjectDetailScreen extends ConsumerWidget {
   final String subjectId;
@@ -107,6 +108,7 @@ class _SubjectDetailContent extends ConsumerStatefulWidget {
 class _SubjectDetailContentState extends ConsumerState<_SubjectDetailContent> {
   late DateTime _selectedMonth;
   final _scrollController = ScrollController();
+  var _showAnticipi = false;
 
   @override
   void initState() {
@@ -165,10 +167,20 @@ class _SubjectDetailContentState extends ConsumerState<_SubjectDetailContent> {
     }).toList();
   }
 
+  List<AppTransaction> get _listTransactions {
+    final txs = _filteredTransactions;
+    if (!_showAnticipi) {
+      return txs.where((t) => t.type != TransactionType.anticipi).toList();
+    }
+    return txs;
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Transazioni filtrate per mese selezionato
+    // Transazioni filtrate per mese selezionato (per i totali)
     final subjectTxs = _filteredTransactions;
+    // Lista transazioni (con filtro anticipi)
+    final listTxs = _listTransactions;
 
     final income = subjectTxs
         .where((t) => t.type == TransactionType.income)
@@ -212,7 +224,7 @@ class _SubjectDetailContentState extends ConsumerState<_SubjectDetailContent> {
             child: Row(
               children: [
                 Text(
-                  'Movimenti (${subjectTxs.length})',
+                  'Movimenti (${listTxs.length})',
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 const Spacer(),
@@ -226,23 +238,43 @@ class _SubjectDetailContentState extends ConsumerState<_SubjectDetailContent> {
               ],
             ),
           ),
+          // Switch per mostrare/nascondere anticipi
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                Text(
+                  'Mostra anticipi',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const Spacer(),
+                Switch(
+                  value: _showAnticipi,
+                  onChanged: (v) => setState(() => _showAnticipi = v),
+                ),
+              ],
+            ),
+          ),
           const Divider(height: 1),
           Expanded(
-            child: subjectTxs.isEmpty
+            child: listTxs.isEmpty
                 ? Center(
                     child: Text(
-                      'Nessun movimento in questo mese',
+                      _showAnticipi
+                          ? 'Nessun movimento in questo mese'
+                          : 'Nessun movimento. Attiva "Mostra anticipi" per vederli.',
                       style: Theme.of(context).textTheme.bodyLarge,
+                      textAlign: TextAlign.center,
                     ),
                   )
                 : ListView.builder(
                     padding: const EdgeInsets.all(16),
-                    itemCount: subjectTxs.length,
+                    itemCount: listTxs.length,
                     itemBuilder: (context, index) {
                       return _buildTransactionTile(
                         context,
                         ref,
-                        subjectTxs[index],
+                        listTxs[index],
                         widget.subject,
                         widget.groups,
                         widget.entries,
@@ -349,58 +381,147 @@ class _SubjectDetailContentState extends ConsumerState<_SubjectDetailContent> {
     List<Group> groups,
     List<Entry> entries,
   ) {
-    String title;
     Color amountColor;
     IconData icon;
 
     if (t.type == TransactionType.transfer) {
-      final fromName = t.fromSubjectId == subject.id ? 'Questo soggetto' : 'Altro';
-      final toName = t.toSubjectId == subject.id ? 'Questo soggetto' : 'Altro';
-      title = 'Trasferimento: $fromName → $toName';
       icon = Icons.swap_horiz;
       amountColor = AppColors.transferColor;
     } else if (t.type == TransactionType.anticipi) {
-      final entry = _findEntry(entries, t.entryId);
-      final group = entry != null ? _findGroup(groups, entry.groupId) : null;
-      title = (entry?.name ?? 'Voce eliminata') + (group != null ? ' (${group.name})' : '');
       icon = Icons.payment;
       amountColor = AppColors.anticipiColor;
     } else {
-      final entry = _findEntry(entries, t.entryId);
-      final group = entry != null ? _findGroup(groups, entry.groupId) : null;
-      title = (entry?.name ?? 'Voce eliminata') + (group != null ? ' (${group.name})' : '');
       icon = t.type == TransactionType.income ? Icons.trending_up : Icons.trending_down;
       amountColor = t.type == TransactionType.income ? AppColors.incomeColor : AppColors.expenseColor;
     }
 
+    final dateStr = DateFormat('dd/MM/yyyy').format(t.date);
+
+    String subjectDisplay;
+    if (t.type == TransactionType.transfer) {
+      final fromName = t.fromSubjectId == subject.id ? 'Questo soggetto' : _findSubjectName(t.fromSubjectId);
+      final toName = t.toSubjectId == subject.id ? 'Questo soggetto' : _findSubjectName(t.toSubjectId);
+      subjectDisplay = '$fromName → $toName';
+    } else {
+      subjectDisplay = _findSubjectName(t.subjectId);
+    }
+
     return Card(
       margin: const EdgeInsets.only(bottom: 6),
-      child: ListTile(
-        leading: Icon(icon, color: amountColor),
-        title: Text(title, style: const TextStyle(fontSize: 14)),
-        subtitle: Text(DateFormat('dd/MM/yyyy').format(t.date)),
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(
-              '€ ${t.amount.toStringAsFixed(2)}',
-              style: TextStyle(
-                color: amountColor,
-                fontWeight: FontWeight.bold,
-                fontSize: 14,
-              ),
-            ),
-            if (t.note != null && t.note!.isNotEmpty)
-              Text(
-                t.note!,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-          ],
-        ),
+      child: InkWell(
         onTap: () => _showEditDialog(context, ref, t, subject, groups, entries),
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, color: amountColor, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          dateStr,
+                          style: const TextStyle(fontSize: 12, color: Colors.grey),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            subjectDisplay,
+                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          '€ ${t.amount.toStringAsFixed(2)}',
+                          style: TextStyle(
+                            color: amountColor,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (t.type != TransactionType.transfer) ...[
+                      const SizedBox(height: 4),
+                      _buildEntryGroupRow(context, t, entries, groups),
+                    ],
+                    if (t.note != null && t.note!.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        t.note!,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontStyle: FontStyle.italic,
+                          fontSize: 11,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
+  }
+
+  Widget _buildEntryGroupRow(BuildContext context, AppTransaction t, List<Entry> entries, List<Group> groups) {
+    final entry = _findEntry(entries, t.entryId);
+    if (entry == null) {
+      return Text(
+        'Voce eliminata',
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      );
+    }
+
+    final group = _findGroup(groups, entry.groupId);
+    if (group == null) {
+      return Text(
+        entry.name,
+        style: Theme.of(context).textTheme.bodySmall,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      );
+    }
+
+    return Row(
+      children: [
+        Text(
+          entry.name,
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        Text(
+          ' - ',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        Expanded(
+          child: Text(
+            group.name,
+            style: Theme.of(context).textTheme.bodySmall,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _findSubjectName(String? id) {
+    if (id == null) return '?';
+    final matching = widget.subjects.where((s) => s.id == id);
+    return matching.isEmpty ? '?' : matching.first.name;
   }
 
   Entry? _findEntry(List<Entry> entries, String? id) {
@@ -413,6 +534,62 @@ class _SubjectDetailContentState extends ConsumerState<_SubjectDetailContent> {
     if (id == null) return null;
     final matching = groups.where((g) => g.id == id);
     return matching.isEmpty ? null : matching.first;
+  }
+
+  String _entryLabel(String? entryId, List<Entry> entries, List<Group> groups) {
+    if (entryId == null) return 'Seleziona voce *';
+    final entry = entries.where((e) => e.id == entryId).firstOrNull;
+    if (entry == null) return 'Voce eliminata';
+    final group = groups.where((g) => g.id == entry.groupId).firstOrNull;
+    return '${entry.name}${group != null ? ' (${group.name})' : ''}';
+  }
+
+  Widget _buildEntryPickerButton({
+    required BuildContext dialogContext,
+    required TransactionType selectedType,
+    required String? selectedEntryId,
+    required void Function(String) onChanged,
+  }) {
+    return InkWell(
+      onTap: () async {
+        final entryId = await showEntryPicker(
+          context: dialogContext,
+          groups: widget.groups,
+          entries: widget.entries,
+          selectedType: selectedType,
+          selectedEntryId: selectedEntryId,
+        );
+        if (entryId != null) {
+          onChanged(entryId);
+        }
+      },
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+        decoration: BoxDecoration(
+          border: Border.all(color: Theme.of(dialogContext).dividerColor),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                _entryLabel(selectedEntryId, widget.entries, widget.groups),
+                style: TextStyle(
+                  fontSize: 14,
+                  color: selectedEntryId != null
+                      ? Theme.of(dialogContext).colorScheme.onSurface
+                      : Theme.of(dialogContext).hintColor,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const Icon(Icons.expand_more, size: 20),
+          ],
+        ),
+      ),
+    );
   }
 
   void _showAddDialog(
@@ -438,16 +615,6 @@ class _SubjectDetailContentState extends ConsumerState<_SubjectDetailContent> {
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setState) {
-          final filteredGroups = groups.where((g) {
-            if (selectedType == TransactionType.income) return g.type == GroupType.income;
-            if (selectedType == TransactionType.expense || selectedType == TransactionType.anticipi) return g.type == GroupType.expense;
-            return true;
-          }).toList();
-
-          final filteredEntries = entries.where((e) {
-            return filteredGroups.any((g) => g.id == e.groupId);
-          }).toList();
-
           return AlertDialog(
             title: Text('Nuovo movimento - ${subject.name}'),
             content: SingleChildScrollView(
@@ -529,21 +696,12 @@ class _SubjectDetailContentState extends ConsumerState<_SubjectDetailContent> {
                       onChanged: (value) => setState(() => selectedSubjectId = value),
                     ),
                     const SizedBox(height: 12),
-                    if (filteredEntries.isNotEmpty)
-                      DropdownButton<String>(
-                        value: selectedEntryId,
-                        isExpanded: true,
-                        hint: const Text('Seleziona voce *'),
-                        items: filteredEntries.map((e) {
-                          final matching = filteredGroups.where((g) => g.id == e.groupId);
-                          final group = matching.isEmpty ? null : matching.first;
-                          return DropdownMenuItem(
-                            value: e.id,
-                            child: Text('${e.name} (${group?.name ?? ""})'),
-                          );
-                        }).toList(),
-                        onChanged: (value) => setState(() => selectedEntryId = value),
-                      ),
+                    _buildEntryPickerButton(
+                      dialogContext: dialogContext,
+                      selectedType: selectedType,
+                      selectedEntryId: selectedEntryId,
+                      onChanged: (value) => setState(() => selectedEntryId = value),
+                    ),
                   ],
                   const SizedBox(height: 12),
                   TextField(
@@ -649,18 +807,6 @@ class _SubjectDetailContentState extends ConsumerState<_SubjectDetailContent> {
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setState) {
-          final filteredGroups = groups.where((g) {
-            if (t.type == TransactionType.income) return g.type == GroupType.income;
-            if (t.type == TransactionType.expense || t.type == TransactionType.anticipi) return g.type == GroupType.expense;
-            return true;
-          }).toList();
-
-          final filteredEntries = entries.where((e) {
-            final matchesGroup = filteredGroups.any((g) => g.id == e.groupId);
-            final isCurrentEntry = e.id == t.entryId;
-            return matchesGroup || isCurrentEntry;
-          }).toList();
-
           return AlertDialog(
             title: const Text('Modifica movimento'),
             content: SingleChildScrollView(
@@ -730,21 +876,12 @@ class _SubjectDetailContentState extends ConsumerState<_SubjectDetailContent> {
                       onChanged: (value) => setState(() => selectedSubjectId = value),
                     ),
                     const SizedBox(height: 12),
-                    if (filteredEntries.isNotEmpty)
-                      DropdownButton<String>(
-                        value: selectedEntryId,
-                        isExpanded: true,
-                        hint: const Text('Seleziona voce *'),
-                        items: filteredEntries.map((e) {
-                          final matching = filteredGroups.where((g) => g.id == e.groupId);
-                          final group = matching.isEmpty ? null : matching.first;
-                          return DropdownMenuItem(
-                            value: e.id,
-                            child: Text('${e.name} (${group?.name ?? ""})'),
-                          );
-                        }).toList(),
-                        onChanged: (value) => setState(() => selectedEntryId = value),
-                      ),
+                    _buildEntryPickerButton(
+                      dialogContext: dialogContext,
+                      selectedType: t.type,
+                      selectedEntryId: selectedEntryId,
+                      onChanged: (value) => setState(() => selectedEntryId = value),
+                    ),
                   ],
                   const SizedBox(height: 12),
                   TextField(
@@ -870,7 +1007,7 @@ class _SubjectDetailContentState extends ConsumerState<_SubjectDetailContent> {
       ),
     );
 
-    if (result != null && !result.isError) {
+    if (result != null && !result.isError && mounted) {
       _showAddDialogFromVoice(context, ref, result);
     }
   }
@@ -901,18 +1038,7 @@ class _SubjectDetailContentState extends ConsumerState<_SubjectDetailContent> {
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setState) {
-          final filteredGroups = widget.groups.where((g) {
-            if (selectedType == TransactionType.income) return g.type == GroupType.income;
-            if (selectedType == TransactionType.expense || selectedType == TransactionType.anticipi) return g.type == GroupType.expense;
-            return true;
-          }).toList();
-
-          final filteredEntries = widget.entries.where((e) {
-            return filteredGroups.any((g) => g.id == e.groupId);
-          }).toList();
-
           return AlertDialog(
-            title: Text('Nuovo movimento (vocale) - ${widget.subject.name}'),
             content: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -989,21 +1115,12 @@ class _SubjectDetailContentState extends ConsumerState<_SubjectDetailContent> {
                       onChanged: (value) => setState(() => selectedSubjectId = value),
                     ),
                     const SizedBox(height: 12),
-                    if (filteredEntries.isNotEmpty)
-                      DropdownButton<String>(
-                        value: selectedEntryId,
-                        isExpanded: true,
-                        hint: const Text('Seleziona voce *'),
-                        items: filteredEntries.map((e) {
-                          final matching = filteredGroups.where((g) => g.id == e.groupId);
-                          final group = matching.isEmpty ? null : matching.first;
-                          return DropdownMenuItem(
-                            value: e.id,
-                            child: Text('${e.name} (${group?.name ?? ""})'),
-                          );
-                        }).toList(),
-                        onChanged: (value) => setState(() => selectedEntryId = value),
-                      ),
+                    _buildEntryPickerButton(
+                      dialogContext: dialogContext,
+                      selectedType: selectedType,
+                      selectedEntryId: selectedEntryId,
+                      onChanged: (value) => setState(() => selectedEntryId = value),
+                    ),
                   ],
                   const SizedBox(height: 12),
                   TextField(

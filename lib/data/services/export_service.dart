@@ -87,14 +87,12 @@ class ExportService {
   }
 
   static Future<void> exportAndShare({
-    required BuildContext context,
+    required ScaffoldMessengerState messenger,
     required List<AppTransaction> transactions,
     required List<Subject> subjects,
     required List<Entry> entries,
     required List<Group> groups,
   }) async {
-    final scaffoldMessenger = ScaffoldMessenger.of(context);
-
     try {
       final csv = await generateCsv(
         transactions: transactions,
@@ -113,7 +111,7 @@ class ExportService {
         subject: 'Export Cassa1',
       );
     } catch (e) {
-      scaffoldMessenger.showSnackBar(
+      messenger.showSnackBar(
         SnackBar(content: Text('Errore durante l\'esportazione: $e'), backgroundColor: Colors.red),
       );
     }

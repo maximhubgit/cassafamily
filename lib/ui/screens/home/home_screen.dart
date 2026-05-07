@@ -6,12 +6,16 @@ import 'package:cassa1/logic/providers/transaction_provider.dart';
 import 'package:cassa1/logic/providers/subject_provider.dart';
 import 'package:cassa1/logic/providers/group_provider.dart';
 import 'package:cassa1/logic/providers/entry_provider.dart';
+import 'package:cassa1/logic/providers/auth_provider.dart';
 import 'package:cassa1/utils/constants.dart';
 import 'package:cassa1/ui/widgets/app_drawer.dart';
 import 'package:cassa1/data/models/transaction.dart';
 import 'package:cassa1/data/models/subject.dart';
 import 'package:cassa1/data/models/group.dart';
 import 'package:cassa1/data/models/entry.dart';
+import 'package:cassa1/ui/widgets/voice_transaction_dialog.dart';
+import 'package:cassa1/data/services/voice_transaction_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -22,6 +26,12 @@ class HomeScreen extends ConsumerWidget {
     final subjectsAsync = ref.watch(subjectsProvider);
     final groupsAsync = ref.watch(groupsProvider);
     final entriesAsync = ref.watch(entriesProvider);
+
+    // Filtro transazioni mese corrente
+    List<AppTransaction> currentMonthTx(List<AppTransaction> all) {
+      final now = DateTime.now();
+      return all.where((t) => t.date.year == now.year && t.date.month == now.month).toList();
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -43,16 +53,17 @@ class HomeScreen extends ConsumerWidget {
               error: (e, _) => Center(child: Text('Errore: $e')),
               data: (entries) {
                 final latest = transactions.take(5).toList();
+                final currentTx = currentMonthTx(transactions);
 
-                final income = transactions
+                final income = currentTx
                     .where((t) => t.type == TransactionType.income)
-                    .fold(0.0, (sum, t) => sum + t.amount);
-                final expense = transactions
+                    .fold(0.0, (acc, t) => acc + t.amount);
+                final expense = currentTx
                     .where((t) => t.type == TransactionType.expense)
-                    .fold(0.0, (sum, t) => sum + t.amount);
-                final anticipi = transactions
+                    .fold(0.0, (acc, t) => acc + t.amount);
+                final anticipi = currentTx
                     .where((t) => t.type == TransactionType.anticipi)
-                    .fold(0.0, (sum, t) => sum + t.amount);
+                    .fold(0.0, (acc, t) => acc + t.amount);
                 final balance = income - expense;
 
                 return Column(
@@ -82,7 +93,7 @@ class HomeScreen extends ConsumerWidget {
                                       itemCount: subjects.length,
                                       itemBuilder: (context, index) {
                                         final s = subjects[index];
-                                        final subjectTransactions = transactions.where((t) {
+                                        final subjectTransactions = currentTx.where((t) {
                                           if (t.type == TransactionType.transfer) {
                                             return t.fromSubjectId == s.id || t.toSubjectId == s.id;
                                           }
@@ -90,16 +101,16 @@ class HomeScreen extends ConsumerWidget {
                                         }).toList();
                                         final sIncome = subjectTransactions
                                             .where((t) => t.type == TransactionType.income)
-                                            .fold(0.0, (sum, t) => sum + t.amount);
+                                            .fold(0.0, (acc, t) => acc + t.amount);
                                         final sExpense = subjectTransactions
                                             .where((t) => t.type == TransactionType.expense)
-                                            .fold(0.0, (sum, t) => sum + t.amount);
+                                            .fold(0.0, (acc, t) => acc + t.amount);
                                         final sTransferIn = subjectTransactions
                                             .where((t) => t.type == TransactionType.transfer && t.toSubjectId == s.id)
-                                            .fold(0.0, (sum, t) => sum + t.amount);
+                                            .fold(0.0, (acc, t) => acc + t.amount);
                                         final sTransferOut = subjectTransactions
                                             .where((t) => t.type == TransactionType.transfer && t.fromSubjectId == s.id)
-                                            .fold(0.0, (sum, t) => sum + t.amount);
+                                            .fold(0.0, (acc, t) => acc + t.amount);
                                         final subjectBalance = sIncome - sExpense + sTransferIn - sTransferOut;
 
                                         return _buildSubjectCard(context, s, subjectBalance, subjectTransactions.length);
@@ -113,6 +124,7 @@ class HomeScreen extends ConsumerWidget {
                                 context,
                                 latest,
                                 transactions,
+                                subjects,
                                 entries,
                                 groups,
                                 income,
@@ -125,7 +137,7 @@ class HomeScreen extends ConsumerWidget {
                         ),
                       ),
                     ),
-                    _buildQuickActions(context),
+                    _buildQuickActions(context, ref),
                   ],
                 );
               },
@@ -140,6 +152,7 @@ class HomeScreen extends ConsumerWidget {
     BuildContext context,
     List<AppTransaction> latest,
     List<AppTransaction> allTransactions,
+    List<Subject> subjects,
     List<Entry> entries,
     List<Group> groups,
     double income,
@@ -193,56 +206,85 @@ class HomeScreen extends ConsumerWidget {
                         separatorBuilder: (_, __) => const Divider(height: 8),
                         itemBuilder: (context, index) {
                           final t = latest[index];
-                          String cause = '';
-                          if (t.type != TransactionType.transfer && t.entryId != null) {
-                            final entry = entries.where((e) => e.id == t.entryId).firstOrNull;
-                            if (entry != null) {
-                              final group = groups.where((g) => g.id == entry.groupId).firstOrNull;
-                              cause = entry.name + (group != null ? ' (${group.name})' : '');
-                            }
+
+                          Color amountColor;
+                          IconData icon;
+                          if (t.type == TransactionType.transfer) {
+                            icon = Icons.swap_horiz;
+                            amountColor = AppColors.transferColor;
+                          } else if (t.type == TransactionType.anticipi) {
+                            icon = Icons.payment;
+                            amountColor = AppColors.anticipiColor;
+                          } else {
+                            icon = t.type == TransactionType.income ? Icons.trending_up : Icons.trending_down;
+                            amountColor = t.type == TransactionType.income ? AppColors.incomeColor : AppColors.expenseColor;
+                          }
+
+                          final dateStr = DateFormat('dd/MM/yyyy').format(t.date);
+
+                          String subjectName;
+                          if (t.type == TransactionType.transfer) {
+                            final from = subjects.where((s) => s.id == t.fromSubjectId).firstOrNull;
+                            final to = subjects.where((s) => s.id == t.toSubjectId).firstOrNull;
+                            subjectName = '${from?.name ?? "?"} → ${to?.name ?? "?"}';
+                          } else {
+                            final s = subjects.where((s) => s.id == t.subjectId).firstOrNull;
+                            subjectName = s?.name ?? '?';
                           }
 
                           return Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Icon(
-                                t.type == TransactionType.income
-                                    ? Icons.trending_up
-                                    : t.type == TransactionType.expense
-                                        ? Icons.trending_down
-                                        : t.type == TransactionType.anticipi
-                                            ? Icons.payment
-                                            : Icons.swap_horiz,
-                                size: 16,
-                                color: t.type == TransactionType.income
-                                    ? AppColors.incomeColor
-                                    : t.type == TransactionType.expense
-                                        ? AppColors.expenseColor
-                                        : t.type == TransactionType.anticipi
-                                            ? AppColors.anticipiColor
-                                            : AppColors.transferColor,
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                DateFormat('dd/MM').format(t.date),
-                                style: const TextStyle(fontSize: 12, color: Colors.grey),
-                              ),
+                              Icon(icon, color: amountColor, size: 16),
                               const SizedBox(width: 6),
                               Expanded(
-                                child: Text(
-                                  cause.isNotEmpty ? cause : (t.note ?? 'Trasferimento'),
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                '€ ${t.amount.toStringAsFixed(2)}',
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Text(
+                                          dateStr,
+                                          style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Expanded(
+                                          child: Text(
+                                            subjectName,
+                                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          '€ ${t.amount.toStringAsFixed(2)}',
+                                          style: TextStyle(
+                                            color: amountColor,
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    if (t.type != TransactionType.transfer) ...[
+                                      const SizedBox(height: 2),
+                                      _buildHomeEntryGroupRow(context, t, entries, groups),
+                                    ],
+                                    if (t.note != null && t.note!.isNotEmpty) ...[
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        t.note!,
+                                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                          fontStyle: FontStyle.italic,
+                                          fontSize: 11,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ],
+                                  ],
                                 ),
                               ),
                             ],
@@ -289,7 +331,46 @@ class HomeScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildQuickActions(BuildContext context) {
+  Widget _buildHomeEntryGroupRow(BuildContext context, AppTransaction t, List<Entry> entries, List<Group> groups) {
+  if (t.type == TransactionType.transfer) return const SizedBox.shrink();
+
+  final entry = entries.where((e) => e.id == t.entryId).firstOrNull;
+  if (entry == null) {
+    return Text(
+      'Voce eliminata',
+      style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+    );
+  }
+
+  final group = groups.where((g) => g.id == entry.groupId).firstOrNull;
+  if (group == null) {
+    return Text(
+      entry.name,
+      style: Theme.of(context).textTheme.bodySmall,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+    );
+  }
+
+  return Row(
+    children: [
+      Text(entry.name, style: Theme.of(context).textTheme.bodySmall),
+      Text(' - ', style: Theme.of(context).textTheme.bodySmall),
+      Expanded(
+        child: Text(
+          group.name,
+          style: Theme.of(context).textTheme.bodySmall,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+    ],
+  );
+}
+
+Widget _buildQuickActions(BuildContext context, WidgetRef ref) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
       decoration: BoxDecoration(
@@ -299,14 +380,69 @@ class HomeScreen extends ConsumerWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _QuickAction(icon: Icons.people, label: AppStrings.subjects, onTap: () => context.push('/subjects')),
           _QuickAction(icon: Icons.folder, label: AppStrings.groups, onTap: () => context.push('/groups')),
           _QuickAction(icon: Icons.receipt, label: AppStrings.entries, onTap: () => context.push('/entries')),
-          _QuickAction(icon: Icons.swap_vert, label: 'Movimenti', onTap: () => context.push('/all-transactions')),
+          _QuickAction(
+            icon: Icons.mic,
+            label: 'Voce',
+            onTap: () async {
+              final subjectsList = ref.read(subjectsProvider).valueOrNull ?? [];
+              final entries = ref.read(entriesProvider).valueOrNull ?? [];
+              final groups = ref.read(groupsProvider).valueOrNull ?? [];
+              if (subjectsList.isEmpty) return;
+              final result = await showDialog<VoiceTransactionResult>(
+                context: context,
+                builder: (_) => VoiceTransactionDialog(
+                  subjects: subjectsList,
+                  entries: entries,
+                  groups: groups,
+                  preselectedSubjectId: null,
+                ),
+              );
+              if (result != null && !result.isError && context.mounted) {
+                _saveVoiceTransaction(context, ref, result);
+              }
+            },
+          ),
           _QuickAction(icon: Icons.bar_chart, label: AppStrings.reports, onTap: () => context.push('/reports')),
+          _QuickAction(icon: Icons.list_alt, label: 'Movimenti', onTap: () => context.push('/all-transactions')),
         ],
       ),
     );
+  }
+
+  void _saveVoiceTransaction(
+    BuildContext context,
+    WidgetRef ref,
+    VoiceTransactionResult voiceResult,
+  ) {
+    final firebaseService = ref.read(firebaseServiceProvider);
+    final now = DateTime.now();
+    final selectedDate = voiceResult.date ??
+        ((now.year == DateTime.now().year && now.month == DateTime.now().month)
+            ? DateTime(now.year, now.month, now.day)
+            : DateTime(now.year, now.month + 1, 0));
+
+    final transaction = AppTransaction(
+      id: FirebaseFirestore.instance.collection('transactions').doc().id,
+      type: voiceResult.type,
+      amount: voiceResult.amount,
+      date: selectedDate,
+      subjectId: voiceResult.type == TransactionType.transfer ? null : voiceResult.subjectId,
+      fromSubjectId: voiceResult.type == TransactionType.transfer ? voiceResult.fromSubjectId : null,
+      toSubjectId: voiceResult.type == TransactionType.transfer ? voiceResult.toSubjectId : null,
+      entryId: voiceResult.type == TransactionType.transfer ? null : voiceResult.entryId,
+      note: voiceResult.note?.isNotEmpty == true ? voiceResult.note : null,
+      createdAt: DateTime.now(),
+    );
+
+    firebaseService.addTransaction(transaction).then((_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Transazione salvata'), backgroundColor: Colors.green),
+        );
+      }
+    });
   }
 
   Widget _buildSubjectCard(BuildContext context, Subject subject, double balance, int txCount) {

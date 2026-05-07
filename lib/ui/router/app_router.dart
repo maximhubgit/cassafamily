@@ -10,6 +10,7 @@ import 'package:cassa1/ui/screens/entries/entry_list_screen.dart';
 import 'package:cassa1/ui/screens/transactions/transaction_list_screen.dart';
 import 'package:cassa1/ui/screens/transactions/all_transactions_screen.dart';
 import 'package:cassa1/ui/screens/reports/report_screen.dart';
+import 'package:cassa1/ui/screens/reports/report_detail_screen.dart';
 import 'package:cassa1/ui/screens/monthly_closing/monthly_closing_screen.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
@@ -63,6 +64,20 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: 'reports',
             builder: (context, state) => const ReportScreen(),
+            routes: [
+              GoRoute(
+                path: 'group/:id',
+                builder: (context, state) => ReportDetailScreen(
+                  groupId: state.params['id']!,
+                ),
+              ),
+              GoRoute(
+                path: 'entry/:id',
+                builder: (context, state) => ReportDetailScreen(
+                  entryId: state.params['id']!,
+                ),
+              ),
+            ],
           ),
           GoRoute(
             path: 'monthly-closing',

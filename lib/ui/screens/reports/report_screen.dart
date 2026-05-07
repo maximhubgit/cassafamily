@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:cassa1/logic/providers/transaction_provider.dart';
@@ -291,7 +292,21 @@ class _ReportContentState extends State<_ReportContent> {
             ),
           )
         else
-          ...items.map((item) => _buildCompactItem(context, item)),
+          ...items.map((item) => InkWell(
+                onTap: () {
+                  if (_view == _ReportView.group) {
+                    context.push(
+                      '/reports/group/${item.id}',
+                    );
+                  } else {
+                    context.push(
+                      '/reports/entry/${item.id}',
+                    );
+                  }
+                },
+                borderRadius: BorderRadius.circular(10),
+                child: _buildCompactItem(context, item),
+              )),
       ],
     );
   }

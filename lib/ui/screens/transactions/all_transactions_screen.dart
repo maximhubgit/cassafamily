@@ -13,6 +13,7 @@ import 'package:cassa1/data/models/entry.dart';
 import 'package:cassa1/data/services/export_service.dart';
 import 'package:cassa1/data/services/voice_transaction_service.dart';
 import 'package:cassa1/ui/widgets/voice_transaction_dialog.dart';
+import 'package:cassa1/ui/widgets/entry_picker.dart';
 
 class AllTransactionsScreen extends ConsumerWidget {
   const AllTransactionsScreen({super.key});
@@ -137,6 +138,14 @@ class _AllTransactionsContentState extends ConsumerState<_AllTransactionsContent
     return matching.isEmpty ? null : matching.first;
   }
 
+  String _entryLabel(String? entryId) {
+    if (entryId == null) return 'Seleziona voce *';
+    final entry = _findEntry(entryId);
+    if (entry == null) return 'Voce eliminata';
+    final group = _findGroup(entry.groupId);
+    return '${entry.name}${group != null ? ' (${group.name})' : ''}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final txs = _filteredTransactions;
@@ -166,7 +175,7 @@ class _AllTransactionsContentState extends ConsumerState<_AllTransactionsContent
             icon: const Icon(Icons.download),
             tooltip: 'Esporta CSV',
             onPressed: () => ExportService.exportAndShare(
-              context: context,
+              messenger: ScaffoldMessenger.of(context),
               transactions: widget.transactions,
               subjects: widget.subjects,
               entries: widget.entries,
@@ -333,69 +342,139 @@ class _AllTransactionsContentState extends ConsumerState<_AllTransactionsContent
     WidgetRef ref,
     AppTransaction t,
   ) {
-    String title;
-    String subtitle = '';
     Color amountColor;
     IconData icon;
 
     if (t.type == TransactionType.transfer) {
-      final from = _findSubject(t.fromSubjectId)?.name ?? '?';
-      final to = _findSubject(t.toSubjectId)?.name ?? '?';
-      title = 'Trasferimento: $from → $to';
       icon = Icons.swap_horiz;
       amountColor = AppColors.transferColor;
     } else if (t.type == TransactionType.anticipi) {
-      final entry = _findEntry(t.entryId);
-      final group = entry != null ? _findGroup(entry.groupId) : null;
-      title = (entry?.name ?? 'Voce eliminata') + (group != null ? ' (${group.name})' : '');
-      final subject = _findSubject(t.subjectId);
-      subtitle = subject?.name ?? '';
       icon = Icons.payment;
       amountColor = AppColors.anticipiColor;
     } else {
-      final entry = _findEntry(t.entryId);
-      final group = entry != null ? _findGroup(entry.groupId) : null;
-      title = (entry?.name ?? 'Voce eliminata') + (group != null ? ' (${group.name})' : '');
-      final subject = _findSubject(t.subjectId);
-      subtitle = subject?.name ?? '';
       icon = t.type == TransactionType.income ? Icons.trending_up : Icons.trending_down;
       amountColor = t.type == TransactionType.income ? AppColors.incomeColor : AppColors.expenseColor;
     }
 
+    final dateStr = DateFormat('dd/MM/yyyy').format(t.date);
+
+    String subjectName;
+    if (t.type == TransactionType.transfer) {
+      final from = _findSubject(t.fromSubjectId)?.name ?? '?';
+      final to = _findSubject(t.toSubjectId)?.name ?? '?';
+      subjectName = '$from → $to';
+    } else {
+      subjectName = _findSubject(t.subjectId)?.name ?? '?';
+    }
+
     return Card(
       margin: const EdgeInsets.only(bottom: 6),
-      child: ListTile(
-        leading: Icon(icon, color: amountColor),
-        title: Text(title, style: const TextStyle(fontSize: 14)),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (subtitle.isNotEmpty)
-              Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
-            Text(DateFormat('dd/MM/yyyy').format(t.date)),
-          ],
-        ),
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(
-              '€ ${t.amount.toStringAsFixed(2)}',
-              style: TextStyle(
-                color: amountColor,
-                fontWeight: FontWeight.bold,
-                fontSize: 14,
-              ),
-            ),
-            if (t.note != null && t.note!.isNotEmpty)
-              Text(
-                t.note!,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-          ],
-        ),
+      child: InkWell(
         onTap: () => _showEditDialog(context, ref, t),
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              Icon(icon, color: amountColor, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          dateStr,
+                          style: const TextStyle(fontSize: 12, color: Colors.grey),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            subjectName,
+                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          '€ ${t.amount.toStringAsFixed(2)}',
+                          style: TextStyle(
+                            color: amountColor,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (t.type != TransactionType.transfer) ...[
+                      const SizedBox(height: 4),
+                      _buildEntryGroupRow(context, t),
+                    ],
+                    if (t.note != null && t.note!.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        t.note!,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontStyle: FontStyle.italic,
+                          fontSize: 11,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
+    );
+  }
+
+  Widget _buildEntryGroupRow(BuildContext context, AppTransaction t) {
+    final entry = _findEntry(t.entryId);
+    if (entry == null) {
+      return Text(
+        'Voce eliminata',
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      );
+    }
+
+    final group = _findGroup(entry.groupId);
+    if (group == null) {
+      return Text(
+        entry.name,
+        style: Theme.of(context).textTheme.bodySmall,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      );
+    }
+
+    return Row(
+      children: [
+        Text(
+          entry.name,
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        Text(
+          ' - ',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        Expanded(
+          child: Text(
+            group.name,
+            style: Theme.of(context).textTheme.bodySmall,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
     );
   }
 
@@ -416,16 +495,6 @@ class _AllTransactionsContentState extends ConsumerState<_AllTransactionsContent
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setState) {
-          final filteredGroups = widget.groups.where((g) {
-            if (selectedType == TransactionType.income) return g.type == GroupType.income;
-            if (selectedType == TransactionType.expense || selectedType == TransactionType.anticipi) return g.type == GroupType.expense;
-            return true;
-          }).toList();
-
-          final filteredEntries = widget.entries.where((e) {
-            return filteredGroups.any((g) => g.id == e.groupId);
-          }).toList();
-
           return AlertDialog(
             title: const Text('Nuovo movimento'),
             content: SingleChildScrollView(
@@ -507,20 +576,46 @@ class _AllTransactionsContentState extends ConsumerState<_AllTransactionsContent
                       onChanged: (value) => setState(() => selectedSubjectId = value),
                     ),
                     const SizedBox(height: 12),
-                    if (filteredEntries.isNotEmpty)
-                      DropdownButton<String>(
-                        value: selectedEntryId,
-                        isExpanded: true,
-                        hint: const Text('Seleziona voce *'),
-                        items: filteredEntries.map((e) {
-                          final group = _findGroup(e.groupId);
-                          return DropdownMenuItem(
-                            value: e.id,
-                            child: Text('${e.name} (${group?.name ?? ""})'),
-                          );
-                        }).toList(),
-                        onChanged: (value) => setState(() => selectedEntryId = value),
+                    InkWell(
+                      onTap: () async {
+                        final entryId = await showEntryPicker(
+                          context: dialogContext,
+                          groups: widget.groups,
+                          entries: widget.entries,
+                          selectedType: selectedType,
+                          selectedEntryId: selectedEntryId,
+                        );
+                        if (entryId != null) {
+                          setState(() => selectedEntryId = entryId);
+                        }
+                      },
+                      borderRadius: BorderRadius.circular(8),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Theme.of(dialogContext).dividerColor),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                _entryLabel(selectedEntryId),
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: selectedEntryId != null
+                                      ? Theme.of(dialogContext).colorScheme.onSurface
+                                      : Theme.of(dialogContext).hintColor,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const Icon(Icons.expand_more, size: 20),
+                          ],
+                        ),
                       ),
+                    ),
                   ],
                   const SizedBox(height: 12),
                   TextField(
@@ -619,18 +714,6 @@ class _AllTransactionsContentState extends ConsumerState<_AllTransactionsContent
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setState) {
-          final filteredGroups = widget.groups.where((g) {
-            if (t.type == TransactionType.income) return g.type == GroupType.income;
-            if (t.type == TransactionType.expense || t.type == TransactionType.anticipi) return g.type == GroupType.expense;
-            return true;
-          }).toList();
-
-          final filteredEntries = widget.entries.where((e) {
-            final matchesGroup = filteredGroups.any((g) => g.id == e.groupId);
-            final isCurrentEntry = e.id == t.entryId;
-            return matchesGroup || isCurrentEntry;
-          }).toList();
-
           return AlertDialog(
             title: const Text('Modifica movimento'),
             content: SingleChildScrollView(
@@ -700,20 +783,46 @@ class _AllTransactionsContentState extends ConsumerState<_AllTransactionsContent
                       onChanged: (value) => setState(() => selectedSubjectId = value),
                     ),
                     const SizedBox(height: 12),
-                    if (filteredEntries.isNotEmpty)
-                      DropdownButton<String>(
-                        value: selectedEntryId,
-                        isExpanded: true,
-                        hint: const Text('Seleziona voce *'),
-                        items: filteredEntries.map((e) {
-                          final group = _findGroup(e.groupId);
-                          return DropdownMenuItem(
-                            value: e.id,
-                            child: Text('${e.name} (${group?.name ?? ""})'),
-                          );
-                        }).toList(),
-                        onChanged: (value) => setState(() => selectedEntryId = value),
+                    InkWell(
+                      onTap: () async {
+                        final entryId = await showEntryPicker(
+                          context: dialogContext,
+                          groups: widget.groups,
+                          entries: widget.entries,
+                          selectedType: t.type,
+                          selectedEntryId: selectedEntryId,
+                        );
+                        if (entryId != null) {
+                          setState(() => selectedEntryId = entryId);
+                        }
+                      },
+                      borderRadius: BorderRadius.circular(8),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Theme.of(dialogContext).dividerColor),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                _entryLabel(selectedEntryId),
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: selectedEntryId != null
+                                      ? Theme.of(dialogContext).colorScheme.onSurface
+                                      : Theme.of(dialogContext).hintColor,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const Icon(Icons.expand_more, size: 20),
+                          ],
+                        ),
                       ),
+                    ),
                   ],
                   const SizedBox(height: 12),
                   TextField(
@@ -839,7 +948,7 @@ class _AllTransactionsContentState extends ConsumerState<_AllTransactionsContent
       ),
     );
 
-    if (result != null && !result.isError) {
+    if (result != null && !result.isError && context.mounted) {
       _showAddDialogFromVoice(context, ref, result);
     }
   }
@@ -870,18 +979,7 @@ class _AllTransactionsContentState extends ConsumerState<_AllTransactionsContent
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setState) {
-          final filteredGroups = widget.groups.where((g) {
-            if (selectedType == TransactionType.income) return g.type == GroupType.income;
-            if (selectedType == TransactionType.expense || selectedType == TransactionType.anticipi) return g.type == GroupType.expense;
-            return true;
-          }).toList();
-
-          final filteredEntries = widget.entries.where((e) {
-            return filteredGroups.any((g) => g.id == e.groupId);
-          }).toList();
-
           return AlertDialog(
-            title: const Text('Nuovo movimento (vocale)'),
             content: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -958,20 +1056,46 @@ class _AllTransactionsContentState extends ConsumerState<_AllTransactionsContent
                       onChanged: (value) => setState(() => selectedSubjectId = value),
                     ),
                     const SizedBox(height: 12),
-                    if (filteredEntries.isNotEmpty)
-                      DropdownButton<String>(
-                        value: selectedEntryId,
-                        isExpanded: true,
-                        hint: const Text('Seleziona voce *'),
-                        items: filteredEntries.map((e) {
-                          final group = _findGroup(e.groupId);
-                          return DropdownMenuItem(
-                            value: e.id,
-                            child: Text('${e.name} (${group?.name ?? ""})'),
-                          );
-                        }).toList(),
-                        onChanged: (value) => setState(() => selectedEntryId = value),
+                    InkWell(
+                      onTap: () async {
+                        final entryId = await showEntryPicker(
+                          context: dialogContext,
+                          groups: widget.groups,
+                          entries: widget.entries,
+                          selectedType: selectedType,
+                          selectedEntryId: selectedEntryId,
+                        );
+                        if (entryId != null) {
+                          setState(() => selectedEntryId = entryId);
+                        }
+                      },
+                      borderRadius: BorderRadius.circular(8),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Theme.of(dialogContext).dividerColor),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                _entryLabel(selectedEntryId),
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: selectedEntryId != null
+                                      ? Theme.of(dialogContext).colorScheme.onSurface
+                                      : Theme.of(dialogContext).hintColor,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const Icon(Icons.expand_more, size: 20),
+                          ],
+                        ),
                       ),
+                    ),
                   ],
                   const SizedBox(height: 12),
                   TextField(

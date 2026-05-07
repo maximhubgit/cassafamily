@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cassa1/data/models/subject.dart';
 import 'package:cassa1/data/models/entry.dart';
 import 'package:cassa1/data/models/group.dart';
-import 'package:cassa1/data/models/transaction.dart';
 import 'package:cassa1/data/services/voice_transaction_service.dart';
 
 class VoiceTransactionDialog extends ConsumerStatefulWidget {
@@ -31,7 +30,6 @@ class _VoiceTransactionDialogState extends ConsumerState<VoiceTransactionDialog>
 
   var _status = _VoiceStatus.idle;
   var _transcribedText = '';
-  VoiceTransactionResult? _result;
   String? _errorMessage;
 
   @override
@@ -57,7 +55,6 @@ class _VoiceTransactionDialogState extends ConsumerState<VoiceTransactionDialog>
       _status = _VoiceStatus.listening;
       _transcribedText = '';
       _errorMessage = null;
-      _result = null;
     });
 
     await _service.startListening(
@@ -85,42 +82,19 @@ class _VoiceTransactionDialogState extends ConsumerState<VoiceTransactionDialog>
 
     if (!mounted) return;
 
-    setState(() {
-      _result = result;
-      _status = result.isError ? _VoiceStatus.error : _VoiceStatus.confirm;
-    });
-  }
-
-  void _confirm() {
-    if (_result != null && !_result!.isError) {
-      Navigator.pop(context, _result);
+    if (result.isError) {
+      setState(() {
+        _status = _VoiceStatus.error;
+        _errorMessage = result.error;
+      });
+    } else {
+      Navigator.pop(context, result);
     }
-  }
-
-  void _retry() {
-    setState(() {
-      _status = _VoiceStatus.idle;
-      _transcribedText = '';
-      _result = null;
-      _errorMessage = null;
-    });
   }
 
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Row(
-        children: [
-          const Text('Nuovo movimento vocale'),
-          const Spacer(),
-          if (_status == _VoiceStatus.listening)
-            const SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-        ],
-      ),
       content: SizedBox(
         width: double.maxFinite,
         child: _buildContent(),
@@ -136,12 +110,17 @@ class _VoiceTransactionDialogState extends ConsumerState<VoiceTransactionDialog>
 
     switch (_status) {
       case _VoiceStatus.idle:
-        return const Column(
+        return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(Icons.mic, size: 48, color: Colors.grey),
             SizedBox(height: 12),
-            Text('Tocca il microfono e di il comando,\n es: "uscita Massimo pranzo 15 euro"'),
+            Text('Nuovo movimento', style: TextStyle(fontWeight: FontWeight.w500)),
+            SizedBox(height: 4),
+            Text(
+              'es. ( 30€ Danza Francy acconto saggio di agosto )',
+              style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Colors.grey),
+            ),
           ],
         );
 
@@ -168,16 +147,13 @@ class _VoiceTransactionDialogState extends ConsumerState<VoiceTransactionDialog>
           ],
         );
 
-      case _VoiceStatus.confirm:
-        return _buildConfirmation();
-
       case _VoiceStatus.error:
         return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             const Icon(Icons.error, color: Colors.red, size: 48),
             const SizedBox(height: 12),
-            Text(_result?.error ?? 'Errore sconosciuto', style: const TextStyle(color: Colors.red)),
+            Text(_errorMessage ?? 'Errore sconosciuto', style: const TextStyle(color: Colors.red)),
             if (_transcribedText.isNotEmpty) ...[
               const SizedBox(height: 8),
               Text('Testo: "$_transcribedText"', style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic)),
@@ -185,58 +161,6 @@ class _VoiceTransactionDialogState extends ConsumerState<VoiceTransactionDialog>
           ],
         );
     }
-  }
-
-  Widget _buildConfirmation() {
-    final r = _result!;
-    final typeStr = _typeToString(r.type);
-
-    String subjectName = 'N/D';
-    if (r.type == TransactionType.transfer) {
-      final from = widget.subjects.where((s) => s.id == r.fromSubjectId).firstOrNull;
-      final to = widget.subjects.where((s) => s.id == r.toSubjectId).firstOrNull;
-      subjectName = '${from?.name ?? "?"} → ${to?.name ?? "?"}';
-    } else {
-      final s = widget.subjects.where((s) => s.id == r.subjectId).firstOrNull;
-      subjectName = s?.name ?? 'N/D';
-    }
-
-    String entryName = '';
-    if (r.entryId != null) {
-      final e = widget.entries.where((e) => e.id == r.entryId).firstOrNull;
-      entryName = e?.name ?? '';
-    }
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Testo: "$_transcribedText"', style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic)),
-        const SizedBox(height: 12),
-        const Text('Conferma i dati:', style: TextStyle(fontWeight: FontWeight.bold)),
-        const SizedBox(height: 8),
-        _infoRow('Tipo:', typeStr),
-        _infoRow('Importo:', '€ ${r.amount.toStringAsFixed(2)}'),
-        _infoRow('Soggetto:', subjectName),
-        if (r.date != null) _infoRow('Data:', '${r.date!.day}/${r.date!.month}/${r.date!.year}'),
-        if (entryName.isNotEmpty) _infoRow('Voce:', entryName),
-        if (r.note != null) _infoRow('Nota:', r.note!),
-        _infoRow('Confidenza:', '${(r.confidence * 100).toStringAsFixed(0)}%'),
-      ],
-    );
-  }
-
-  Widget _infoRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(width: 70, child: Text(label, style: const TextStyle(fontWeight: FontWeight.w500))),
-          Expanded(child: Text(value)),
-        ],
-      ),
-    );
   }
 
   List<Widget> _buildActions() {
@@ -273,37 +197,8 @@ class _VoiceTransactionDialogState extends ConsumerState<VoiceTransactionDialog>
             child: const Text('Annulla'),
           ),
         ];
-
-      case _VoiceStatus.confirm:
-        return [
-          TextButton(
-            onPressed: _retry,
-            child: const Text('Riprova'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Annulla'),
-          ),
-          TextButton(
-            onPressed: _confirm,
-            child: const Text('Conferma'),
-          ),
-        ];
-    }
-  }
-
-  String _typeToString(TransactionType type) {
-    switch (type) {
-      case TransactionType.income:
-        return 'Entrata';
-      case TransactionType.expense:
-        return 'Uscita';
-      case TransactionType.transfer:
-        return 'Trasferimento';
-      case TransactionType.anticipi:
-        return 'Anticipo';
     }
   }
 }
 
-enum _VoiceStatus { idle, listening, processing, confirm, error }
+enum _VoiceStatus { idle, listening, processing, error }
