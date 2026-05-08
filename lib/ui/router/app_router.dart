@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cassa1/logic/providers/auth_provider.dart';
@@ -13,10 +14,13 @@ import 'package:cassa1/ui/screens/reports/report_screen.dart';
 import 'package:cassa1/ui/screens/reports/report_detail_screen.dart';
 import 'package:cassa1/ui/screens/monthly_closing/monthly_closing_screen.dart';
 
+final routeObserver = RouteObserver<ModalRoute<void>>();
+
 final appRouterProvider = Provider<GoRouter>((ref) {
   final authState = ref.watch(authStateProvider);
   return GoRouter(
     initialLocation: '/',
+    observers: [routeObserver],
     redirect: (context, state) {
       final isLoggedIn = authState.asData?.value != null;
       final isLoginRoute = state.location == '/login';

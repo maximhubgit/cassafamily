@@ -9,6 +9,7 @@ import 'package:cassa1/logic/providers/entry_provider.dart';
 import 'package:cassa1/logic/providers/auth_provider.dart';
 import 'package:cassa1/utils/constants.dart';
 import 'package:cassa1/ui/widgets/app_drawer.dart';
+import 'package:cassa1/ui/router/app_router.dart';
 import 'package:cassa1/data/models/transaction.dart';
 import 'package:cassa1/data/models/subject.dart';
 import 'package:cassa1/data/models/group.dart';
@@ -17,21 +18,143 @@ import 'package:cassa1/ui/widgets/voice_transaction_dialog.dart';
 import 'package:cassa1/data/services/voice_transaction_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-class HomeScreen extends ConsumerWidget {
+class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends ConsumerState<HomeScreen> with RouteAware {
+  late int _selectedMonth;
+  late int _selectedYear;
+
+  @override
+  void initState() {
+    super.initState();
+    final now = DateTime.now();
+    _selectedMonth = now.month;
+    _selectedYear = now.year;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    routeObserver.subscribe(this, ModalRoute.of(context)!);
+  }
+
+  @override
+  void dispose() {
+    routeObserver.unsubscribe(this);
+    super.dispose();
+  }
+
+  @override
+  void didPopNext() {
+    final now = DateTime.now();
+    setState(() {
+      _selectedMonth = now.month;
+      _selectedYear = now.year;
+    });
+  }
+
+  Future<void> _pickMonthYear(BuildContext context) async {
+    int tempMonth = _selectedMonth;
+    int tempYear = _selectedYear;
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            return AlertDialog(
+              title: const Text('Seleziona mese e anno'),
+              content: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButton<int>(
+                    value: tempMonth,
+                    items: List.generate(12, (i) {
+                      final m = i + 1;
+                      return DropdownMenuItem(
+                        value: m,
+                        child: Text(DateFormat('MMMM', 'it_IT').format(DateTime(0, m))),
+                      );
+                    }),
+                    onChanged: (v) => setDialogState(() => tempMonth = v!),
+                  ),
+                  const SizedBox(width: 12),
+                  DropdownButton<int>(
+                    value: tempYear,
+                    items: List.generate(5, (i) {
+                      final y = DateTime.now().year - 2 + i;
+                      return DropdownMenuItem(value: y, child: Text('$y'));
+                    }),
+                    onChanged: (v) => setDialogState(() => tempYear = v!),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(false),
+                  child: const Text('Annulla'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(true),
+                  child: const Text('Conferma'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (result == true) {
+      setState(() {
+        _selectedMonth = tempMonth;
+        _selectedYear = tempYear;
+      });
+    }
+  }
+
+  List<AppTransaction> _monthTx(List<AppTransaction> all, int year, int month) {
+    return all.where((t) => t.date.year == year && t.date.month == month).toList();
+  }
+
+  double _computeMonthBalance(List<AppTransaction> allTransactions, List<Subject> subjects, int year, int month) {
+    final monthTx = allTransactions.where((t) => t.date.year == year && t.date.month == month).toList();
+    return subjects.fold<double>(0.0, (acc, s) {
+      final subjectTransactions = monthTx.where((t) {
+        if (t.type == TransactionType.transfer) {
+          return t.fromSubjectId == s.id || t.toSubjectId == s.id;
+        }
+        return t.subjectId == s.id;
+      }).toList();
+      final sIncome = subjectTransactions
+          .where((t) => t.type == TransactionType.income)
+          .fold(0.0, (acc, t) => acc + t.amount);
+      final sExpense = subjectTransactions
+          .where((t) => t.type == TransactionType.expense)
+          .fold(0.0, (acc, t) => acc + t.amount);
+      final sTransferIn = subjectTransactions
+          .where((t) => t.type == TransactionType.transfer && t.toSubjectId == s.id)
+          .fold(0.0, (acc, t) => acc + t.amount);
+      final sTransferOut = subjectTransactions
+          .where((t) => t.type == TransactionType.transfer && t.fromSubjectId == s.id)
+          .fold(0.0, (acc, t) => acc + t.amount);
+      return acc + sIncome - sExpense + sTransferIn - sTransferOut;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final transactionsAsync = ref.watch(transactionsProvider);
     final subjectsAsync = ref.watch(subjectsProvider);
     final groupsAsync = ref.watch(groupsProvider);
     final entriesAsync = ref.watch(entriesProvider);
 
-    // Filtro transazioni mese corrente
-    List<AppTransaction> currentMonthTx(List<AppTransaction> all) {
-      final now = DateTime.now();
-      return all.where((t) => t.date.year == now.year && t.date.month == now.month).toList();
-    }
+    final now = DateTime.now();
 
     return Scaffold(
       appBar: AppBar(
@@ -53,7 +176,7 @@ class HomeScreen extends ConsumerWidget {
               error: (e, _) => Center(child: Text('Errore: $e')),
               data: (entries) {
                 final latest = transactions.take(5).toList();
-                final currentTx = currentMonthTx(transactions);
+                final currentTx = _monthTx(transactions, now.year, now.month);
 
                 final income = currentTx
                     .where((t) => t.type == TransactionType.income)
@@ -66,6 +189,60 @@ class HomeScreen extends ConsumerWidget {
                     .fold(0.0, (acc, t) => acc + t.amount);
                 final balance = income - expense;
 
+                final selectedTx = _monthTx(transactions, _selectedYear, _selectedMonth);
+                final totalBalance = subjects.fold<double>(0.0, (acc, s) {
+                  final subjectTransactions = selectedTx.where((t) {
+                    if (t.type == TransactionType.transfer) {
+                      return t.fromSubjectId == s.id || t.toSubjectId == s.id;
+                    }
+                    return t.subjectId == s.id;
+                  }).toList();
+                  final sIncome = subjectTransactions
+                      .where((t) => t.type == TransactionType.income)
+                      .fold(0.0, (acc, t) => acc + t.amount);
+                  final sExpense = subjectTransactions
+                      .where((t) => t.type == TransactionType.expense)
+                      .fold(0.0, (acc, t) => acc + t.amount);
+                  final sTransferIn = subjectTransactions
+                      .where((t) => t.type == TransactionType.transfer && t.toSubjectId == s.id)
+                      .fold(0.0, (acc, t) => acc + t.amount);
+                  final sTransferOut = subjectTransactions
+                      .where((t) => t.type == TransactionType.transfer && t.fromSubjectId == s.id)
+                      .fold(0.0, (acc, t) => acc + t.amount);
+                  return acc + sIncome - sExpense + sTransferIn - sTransferOut;
+                });
+
+                final yearBalances = <double>[];
+                for (int m = 1; m <= 12; m++) {
+                  final bal = _computeMonthBalance(transactions, subjects, _selectedYear, m);
+                  if (transactions.any((t) => t.date.year == _selectedYear && t.date.month == m)) {
+                    yearBalances.add(bal);
+                  }
+                }
+                final yearAvgBalance = yearBalances.isNotEmpty
+                    ? yearBalances.fold(0.0, (a, b) => a + b) / yearBalances.length
+                    : 0.0;
+
+                final prevMonth = _selectedMonth == 1 ? 12 : _selectedMonth - 1;
+                final prevMonthYear = _selectedMonth == 1 ? _selectedYear - 1 : _selectedYear;
+                final prevMonthBalance = _computeMonthBalance(transactions, subjects, prevMonthYear, prevMonth);
+
+                final twentyFourMonthBalances = <double>[];
+                for (int i = 1; i <= 24; i++) {
+                  int m = _selectedMonth - i;
+                  int y = _selectedYear;
+                  while (m <= 0) {
+                    m += 12;
+                    y -= 1;
+                  }
+                  if (transactions.any((t) => t.date.year == y && t.date.month == m)) {
+                    twentyFourMonthBalances.add(_computeMonthBalance(transactions, subjects, y, m));
+                  }
+                }
+                final twentyFourMonthAvg = twentyFourMonthBalances.isNotEmpty
+                    ? twentyFourMonthBalances.fold(0.0, (a, b) => a + b) / twentyFourMonthBalances.length
+                    : 0.0;
+
                 return Column(
                   children: [
                     Expanded(
@@ -75,7 +252,7 @@ class HomeScreen extends ConsumerWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Expanded(
-                              flex: 3,
+                              flex: 2,
                               child: subjects.isEmpty
                                   ? const Center(
                                       child: Text(
@@ -93,7 +270,7 @@ class HomeScreen extends ConsumerWidget {
                                       itemCount: subjects.length,
                                       itemBuilder: (context, index) {
                                         final s = subjects[index];
-                                        final subjectTransactions = currentTx.where((t) {
+                                        final subjectTransactions = selectedTx.where((t) {
                                           if (t.type == TransactionType.transfer) {
                                             return t.fromSubjectId == s.id || t.toSubjectId == s.id;
                                           }
@@ -118,8 +295,18 @@ class HomeScreen extends ConsumerWidget {
                                     ),
                             ),
                             const SizedBox(height: 12),
+                            _buildTotalBalanceCard(
+                              context,
+                              totalBalance,
+                              yearAvgBalance,
+                              prevMonthBalance,
+                              twentyFourMonthAvg,
+                              _selectedMonth,
+                              _selectedYear,
+                            ),
+                            const SizedBox(height: 12),
                             Expanded(
-                              flex: 2,
+                              flex: 3,
                               child: _buildLatestTransactionsCard(
                                 context,
                                 latest,
@@ -173,23 +360,13 @@ class HomeScreen extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  Text(
-                    'Ultime transazioni',
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                  ),
-                  const Spacer(),
-                  Text(
-                    '€ ${balance.toStringAsFixed(2)}',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: balance >= 0 ? AppColors.incomeColor : AppColors.expenseColor,
-                    ),
-                  ),
-                ],
+              Center(
+                child: Text(
+                  'Ultime transazioni',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                ),
               ),
               const SizedBox(height: 8),
               Expanded(
@@ -272,18 +449,6 @@ class HomeScreen extends ConsumerWidget {
                                       const SizedBox(height: 2),
                                       _buildHomeEntryGroupRow(context, t, entries, groups),
                                     ],
-                                    if (t.note != null && t.note!.isNotEmpty) ...[
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        t.note!,
-                                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                          fontStyle: FontStyle.italic,
-                                          fontSize: 11,
-                                        ),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ],
                                   ],
                                 ),
                               ),
@@ -332,45 +497,45 @@ class HomeScreen extends ConsumerWidget {
   }
 
   Widget _buildHomeEntryGroupRow(BuildContext context, AppTransaction t, List<Entry> entries, List<Group> groups) {
-  if (t.type == TransactionType.transfer) return const SizedBox.shrink();
+    if (t.type == TransactionType.transfer) return const SizedBox.shrink();
 
-  final entry = entries.where((e) => e.id == t.entryId).firstOrNull;
-  if (entry == null) {
-    return Text(
-      'Voce eliminata',
-      style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey),
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-    );
-  }
+    final entry = entries.where((e) => e.id == t.entryId).firstOrNull;
+    if (entry == null) {
+      return Text(
+        'Voce eliminata',
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      );
+    }
 
-  final group = groups.where((g) => g.id == entry.groupId).firstOrNull;
-  if (group == null) {
-    return Text(
-      entry.name,
-      style: Theme.of(context).textTheme.bodySmall,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-    );
-  }
+    final group = groups.where((g) => g.id == entry.groupId).firstOrNull;
+    if (group == null) {
+      return Text(
+        entry.name,
+        style: Theme.of(context).textTheme.bodySmall,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      );
+    }
 
-  return Row(
-    children: [
-      Text(entry.name, style: Theme.of(context).textTheme.bodySmall),
-      Text(' - ', style: Theme.of(context).textTheme.bodySmall),
-      Expanded(
-        child: Text(
-          group.name,
-          style: Theme.of(context).textTheme.bodySmall,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
+    return Row(
+      children: [
+        Text(entry.name, style: Theme.of(context).textTheme.bodySmall),
+        Text(' - ', style: Theme.of(context).textTheme.bodySmall),
+        Expanded(
+          child: Text(
+            group.name,
+            style: Theme.of(context).textTheme.bodySmall,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
         ),
-      ),
-    ],
-  );
-}
+      ],
+    );
+  }
 
-Widget _buildQuickActions(BuildContext context, WidgetRef ref) {
+  Widget _buildQuickActions(BuildContext context, WidgetRef ref) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
       decoration: BoxDecoration(
@@ -455,30 +620,30 @@ Widget _buildQuickActions(BuildContext context, WidgetRef ref) {
         onTap: () => context.push('/subjects/${subject.id}'),
         borderRadius: BorderRadius.circular(16),
         child: Padding(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(16),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               CircleAvatar(
-                radius: 28,
+                radius: 24,
                 backgroundColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.15),
-                child: Icon(_getIconData(subject.icon), color: Theme.of(context).colorScheme.primary, size: 28),
+                child: Icon(_getIconData(subject.icon), color: Theme.of(context).colorScheme.primary, size: 24),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               Text(
                 subject.name,
-                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
                 textAlign: TextAlign.center,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
-              const Spacer(),
+              const SizedBox(height: 6),
               Text(
                 '€ ${balance.toStringAsFixed(2)}',
                 style: TextStyle(
                   color: balance >= 0 ? AppColors.incomeColor : AppColors.expenseColor,
                   fontWeight: FontWeight.bold,
-                  fontSize: 18,
+                  fontSize: 17,
                 ),
               ),
               Text(
@@ -501,6 +666,122 @@ Widget _buildQuickActions(BuildContext context, WidgetRef ref) {
       default:
         return Icons.person;
     }
+  }
+
+  Widget _buildTotalBalanceCard(
+    BuildContext context,
+    double totalBalance,
+    double yearAvgBalance,
+    double prevMonthBalance,
+    double twentyFourMonthAvg,
+    int selectedMonth,
+    int selectedYear,
+  ) {
+    final monthName = DateFormat('MMM yyyy', 'it_IT').format(DateTime(selectedYear, selectedMonth));
+
+    return Card(
+      elevation: 4,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: InkWell(
+        onTap: () => _pickMonthYear(context),
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+          child: Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.calendar_today, size: 18, color: Theme.of(context).colorScheme.primary),
+                      const SizedBox(width: 8),
+                      Text(
+                        monthName,
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w500,
+                            ),
+                      ),
+                      const SizedBox(width: 4),
+                      Icon(Icons.arrow_drop_down, color: Theme.of(context).colorScheme.primary),
+                    ],
+                  ),
+                  Text(
+                    '€ ${totalBalance.toStringAsFixed(2)}',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      fontStyle: FontStyle.italic,
+                      color: totalBalance >= 0 ? AppColors.incomeColor : AppColors.expenseColor,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 16,
+                runSpacing: 8,
+                alignment: WrapAlignment.center,
+                children: [
+                  _buildPercIndicator(context, totalBalance, yearAvgBalance, 'Anno', Icons.calendar_today),
+                  _buildPercIndicator(context, totalBalance, prevMonthBalance, 'Mese', Icons.arrow_back),
+                  _buildPercIndicator(context, totalBalance, twentyFourMonthAvg, '24m', Icons.date_range),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPercIndicator(BuildContext context, double current, double reference, String label, IconData icon) {
+    if (reference == 0) {
+      return Column(
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 14, color: Colors.grey),
+              const SizedBox(width: 4),
+              Text(label, style: Theme.of(context).textTheme.bodySmall),
+            ],
+          ),
+          Text('N/A', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey)),
+        ],
+      );
+    }
+    final perc = (current / reference.abs()) * 100;
+    final isUp = current >= reference;
+    final color = isUp ? AppColors.incomeColor : AppColors.expenseColor;
+    return Column(
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: Colors.grey),
+            const SizedBox(width: 4),
+            Text(label, style: Theme.of(context).textTheme.bodySmall),
+          ],
+        ),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(isUp ? Icons.arrow_upward : Icons.arrow_downward, size: 16, color: color),
+            Text(
+              '${perc.abs().toStringAsFixed(1)}%',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
   }
 }
 

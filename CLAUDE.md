@@ -9,6 +9,9 @@ Cassa1 is a Flutter app for personal/family budget management. Users track incom
 ## Commands
 
 ```bash
+# Install dependencies
+flutter pub get
+
 # Run on Edge browser (primary dev target)
 flutter run -d edge
 
@@ -81,6 +84,36 @@ UI (ConsumerWidget) → Provider (StreamProvider) → Repository → Service (Fi
 4. `SharedPreferences.getInstance()` — stored as override for `sharedPreferencesProvider`
 5. `runApp()` with `ProviderScope` wrapping `MyApp` (ConsumerWidget)
 
+### Firestore Schema
+
+| Collection | Model | Key Fields | Notes |
+|------------|-------|-------------|-------|
+| `subjects` | `Subject` | `id`, `name`, `icon`, `createdAt` | People (Maxim, Francy) |
+| `groups` | `Group` | `id`, `name`, `type` (income/expense), `icon`, `createdAt` | Categories grouped by type |
+| `entries` | `Entry` | `id`, `groupId`, `name`, `icon`, `createdAt` | Voce - linked to a group |
+| `transactions` | `AppTransaction` | `id`, `type`, `amount`, `date`, `subjectId`/`fromSubjectId`/`toSubjectId`, `entryId`, `note`, `createdAt` | 4 types: income, expense, transfer, anticipi |
+
+- All collections use `orderBy('createdAt')` for streams
+- `subjectId` is used for income/expense/anticipi; `fromSubjectId`/`toSubjectId` for transfers
+- `entryId` links transactions to entries (which belong to groups)
+
+### Provider Dependency Graph
+
+```
+firebaseServiceProvider (FirebaseService singleton)
+    ↑
+sharedPreferencesProvider (SharedPreferences — overridden in main.dart)
+    ↑
+subjectRepositoryProvider / groupRepositoryProvider / entryRepositoryProvider / transactionRepositoryProvider
+    ↑ (each wraps FirebaseService + CacheService)
+subjectsProvider / groupsProvider / entriesProvider / transactionsProvider (StreamProvider)
+    ↑ (consumed by UI via ref.watch)
+```
+
+- `authStateProvider` (StreamProvider of Firebase User) is defined in `auth_provider.dart` alongside `firebaseServiceProvider` and `sharedPreferencesProvider`
+- `themeModeProvider` (StateNotifierProvider) persists ThemeMode via SharedPreferences
+- All screen widgets are `ConsumerWidget` (or `ConsumerStatefulWidget` for stateful screens like `HomeScreen`) consuming providers via `ref.watch`
+
 ### Balance Calculation
 
 ```
@@ -143,7 +176,7 @@ The export button is on the "Tutti i movimenti" screen (`all_transactions_screen
 - **go_router 6.x**: Use `state.params['id']` (not `state.pathParameters`) for route params
 - **Navigation**: Use `context.go('/path')` or `context.push('/path')` (go_router) for navigation, not `Navigator.push()`
 - **intl initialization**: `await initializeDateFormatting('it_IT', null)` in `main()` before running the app
-- **Riverpod**: All screens are `ConsumerWidget`, data consumed via `ref.watch(provider)`
+- **Riverpod**: Screens are `ConsumerWidget` or `ConsumerStatefulWidget` (stateful screens like `HomeScreen` for month/year picker state), data consumed via `ref.watch(provider)`
 - **Theme**: Material3, seed color from `AppColors.primary`, Poppins font via google_fonts. Dark theme uses `surfaceContainerHighest` for card backgrounds. Use `Theme.of(context).colorScheme.*` for theme-aware colors (not hardcoded `AppColors.primary`)
 - **Deprecated APIs**: `withOpacity` → `withValues()`, `surfaceVariant` → `surfaceContainerHighest`
 - **Firebase config**: Manual setup in `lib/firebase_options.dart` (not using FlutterFire CLI). Android needs `google-services.json` in `android/app/` for APK builds. Android package name: `com.maxim.cassafamily`
