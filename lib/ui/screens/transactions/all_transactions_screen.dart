@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:cassa1/logic/providers/transaction_provider.dart';
 import 'package:cassa1/logic/providers/subject_provider.dart';
 import 'package:cassa1/logic/providers/group_provider.dart';
 import 'package:cassa1/logic/providers/entry_provider.dart';
+import 'package:cassa1/logic/providers/auth_provider.dart';
 import 'package:cassa1/utils/constants.dart';
 import 'package:cassa1/data/models/transaction.dart';
 import 'package:cassa1/data/models/subject.dart';
@@ -25,6 +27,12 @@ class AllTransactionsScreen extends ConsumerWidget {
     final groupsAsync = ref.watch(groupsProvider);
     final entriesAsync = ref.watch(entriesProvider);
 
+    final extra = GoRouterState.of(context).extra;
+    VoiceTransactionResult? voiceResult;
+    if (extra is VoiceTransactionResult) {
+      voiceResult = extra;
+    }
+
     return transactionsAsync.when(
       loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
       error: (e, _) => Scaffold(body: Center(child: Text('Errore: $e'))),
@@ -42,6 +50,7 @@ class AllTransactionsScreen extends ConsumerWidget {
               subjects: subjects,
               groups: groups,
               entries: entries,
+              voiceResult: voiceResult,
             ),
           ),
         ),
@@ -55,12 +64,14 @@ class _AllTransactionsContent extends ConsumerStatefulWidget {
   final List<Subject> subjects;
   final List<Group> groups;
   final List<Entry> entries;
+  final VoiceTransactionResult? voiceResult;
 
   const _AllTransactionsContent({
     required this.transactions,
     required this.subjects,
     required this.groups,
     required this.entries,
+    this.voiceResult,
   });
 
   @override
@@ -70,17 +81,28 @@ class _AllTransactionsContent extends ConsumerStatefulWidget {
 class _AllTransactionsContentState extends ConsumerState<_AllTransactionsContent> {
   late DateTime _selectedMonth;
   final _scrollController = ScrollController();
+  VoiceTransactionResult? _pendingVoiceResult;
 
   @override
   void initState() {
     super.initState();
     final now = DateTime.now();
     _selectedMonth = DateTime(now.year, now.month);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
-        _scrollController.jumpTo(2 * 80.0);
-      }
-    });
+    _pendingVoiceResult = widget.voiceResult;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_pendingVoiceResult != null) {
+      final result = _pendingVoiceResult!;
+      _pendingVoiceResult = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _showAddDialogFromVoice(context, ref, result);
+        }
+      });
+    }
   }
 
   @override
@@ -938,13 +960,14 @@ class _AllTransactionsContentState extends ConsumerState<_AllTransactionsContent
   }
 
   void _showVoiceDialog(BuildContext context, WidgetRef ref) async {
+    final defaultSubjectId = ref.read(defaultSubjectProvider);
     final result = await showDialog<VoiceTransactionResult>(
       context: context,
       builder: (dialogContext) => VoiceTransactionDialog(
         subjects: widget.subjects,
         entries: widget.entries,
         groups: widget.groups,
-        preselectedSubjectId: null,
+        defaultSubjectId: defaultSubjectId,
       ),
     );
 

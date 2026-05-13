@@ -7,6 +7,7 @@ class AppColors {
   static const expenseColor = Color(0xFFF44336);
   static const transferColor = Color(0xFF2196F3);
   static const anticipiColor = Color(0xFFFF9800);
+  static const mustardColor = Color(0xFFD4A017);
 }
 
 class AppStrings {

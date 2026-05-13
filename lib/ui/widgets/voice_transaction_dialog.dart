@@ -9,13 +9,13 @@ class VoiceTransactionDialog extends ConsumerStatefulWidget {
   final List<Subject> subjects;
   final List<Entry> entries;
   final List<Group> groups;
-  final String? preselectedSubjectId;
+  final String? defaultSubjectId;
 
   const VoiceTransactionDialog({
     required this.subjects,
     required this.entries,
     required this.groups,
-    this.preselectedSubjectId,
+    this.defaultSubjectId,
     super.key,
   });
 
@@ -78,6 +78,7 @@ class _VoiceTransactionDialogState extends ConsumerState<VoiceTransactionDialog>
       subjects: widget.subjects,
       entries: widget.entries,
       groups: widget.groups,
+      defaultSubjectId: widget.defaultSubjectId,
     );
 
     if (!mounted) return;
@@ -118,7 +119,7 @@ class _VoiceTransactionDialogState extends ConsumerState<VoiceTransactionDialog>
             Text('Nuovo movimento', style: TextStyle(fontWeight: FontWeight.w500)),
             SizedBox(height: 4),
             Text(
-              'es. ( 30€ Danza Francy acconto saggio di agosto )',
+              'es. ( Danza 30€ acconto per saggio a l\'operà di Parigi )',
               style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Colors.grey),
             ),
           ],

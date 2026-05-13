@@ -21,7 +21,9 @@
       "Bash(grep -v \"^$\")",
       "Bash(flutter --version)",
       "Bash(Select-String -Pattern \"voice_transaction_dialog\")",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(dart analyze *)",
+      "Bash(Get-ChildItem *)"
     ]
   }
 }

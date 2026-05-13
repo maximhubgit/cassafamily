@@ -6,6 +6,14 @@ import 'package:cassa1/utils/constants.dart';
 class LoginScreen extends ConsumerWidget {
   const LoginScreen({super.key});
 
+  Future<void> _selectSubject(BuildContext context, WidgetRef ref, String subjectId) async {
+    final prefs = ref.read(sharedPreferencesProvider);
+    await prefs.setString('default_subject_id', subjectId);
+    ref.read(defaultSubjectProvider.notifier).state = subjectId;
+    final authNotifier = ref.read(authNotifierProvider.notifier);
+    await authNotifier.signInAnonymously();
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final authNotifier = ref.watch(authNotifierProvider.notifier);
@@ -53,23 +61,43 @@ class LoginScreen extends ConsumerWidget {
                       'Gestione bilancio familiare',
                       style: Theme.of(context).textTheme.bodyMedium,
                     ),
-                    const SizedBox(height: 48),
-                    ElevatedButton.icon(
-                      onPressed: isLoading ? null : () => authNotifier.signInAnonymously(),
-                      icon: isLoading ? const SizedBox() : const Icon(Icons.login),
-                      label: isLoading
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text(AppStrings.anonymousLogin),
-                      style: ElevatedButton.styleFrom(
-                        minimumSize: const Size(double.infinity, 50),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                    const SizedBox(height: 32),
+                    Text(
+                      'Chi sei?',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: isLoading ? null : () => _selectSubject(context, ref, 'maxim'),
+                            icon: const Icon(Icons.person),
+                            label: const Text('Maxim'),
+                            style: ElevatedButton.styleFrom(
+                              minimumSize: const Size(double.infinity, 50),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
                         ),
-                      ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: isLoading ? null : () => _selectSubject(context, ref, 'francy'),
+                            icon: const Icon(Icons.person),
+                            label: const Text('Francy'),
+                            style: ElevatedButton.styleFrom(
+                              minimumSize: const Size(double.infinity, 50),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),

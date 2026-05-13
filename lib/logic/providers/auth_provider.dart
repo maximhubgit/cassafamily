@@ -17,6 +17,11 @@ final authNotifierProvider = StateNotifierProvider<AuthNotifier, User?>((ref) {
   return AuthNotifier();
 });
 
+final defaultSubjectProvider = StateProvider<String?>((ref) {
+  final prefs = ref.watch(sharedPreferencesProvider);
+  return prefs.getString('default_subject_id');
+});
+
 class AuthNotifier extends StateNotifier<User?> {
   AuthNotifier() : super(null);
 

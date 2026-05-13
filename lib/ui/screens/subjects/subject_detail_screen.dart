@@ -5,6 +5,7 @@ import 'package:cassa1/logic/providers/transaction_provider.dart';
 import 'package:cassa1/logic/providers/subject_provider.dart';
 import 'package:cassa1/logic/providers/group_provider.dart';
 import 'package:cassa1/logic/providers/entry_provider.dart';
+import 'package:cassa1/logic/providers/auth_provider.dart';
 import 'package:cassa1/utils/constants.dart';
 import 'package:cassa1/data/models/transaction.dart';
 import 'package:cassa1/data/models/subject.dart';
@@ -997,13 +998,14 @@ class _SubjectDetailContentState extends ConsumerState<_SubjectDetailContent> {
   }
 
   void _showVoiceDialog(BuildContext context, WidgetRef ref, Subject subject) async {
+    final defaultSubjectId = ref.read(defaultSubjectProvider);
     final result = await showDialog<VoiceTransactionResult>(
       context: context,
       builder: (dialogContext) => VoiceTransactionDialog(
         subjects: widget.subjects,
         entries: widget.entries,
         groups: widget.groups,
-        preselectedSubjectId: subject.id,
+        defaultSubjectId: defaultSubjectId,
       ),
     );
 

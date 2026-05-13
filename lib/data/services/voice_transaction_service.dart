@@ -120,6 +120,7 @@ class VoiceTransactionService {
     required List<Subject> subjects,
     required List<Entry> entries,
     required List<Group> groups,
+    String? defaultSubjectId,
   }) async {
     if (transcribedText.isEmpty) {
       return VoiceTransactionResult.error('Nessun testo trascritto');
@@ -131,6 +132,7 @@ class VoiceTransactionService {
         subjects: subjects,
         entries: entries,
         groups: groups,
+        defaultSubjectId: defaultSubjectId,
       );
       return response;
     } catch (e) {
@@ -143,6 +145,7 @@ class VoiceTransactionService {
     required List<Subject> subjects,
     required List<Entry> entries,
     required List<Group> groups,
+    String? defaultSubjectId,
   }) async {
     final subjectsJson = subjects.map((s) => '{"id": "${s.id}", "name": "${s.name}"}').join(',\n    ');
     final entriesJson = entries.map((e) {
@@ -170,25 +173,22 @@ Testo trascritto dall'utente: "$transcribedText"
 Analizza il testo e restituisci ESCLUSIVAMENTE un oggetto JSON valido con questi campi:
 - "type": uno di "income", "expense", "transfer", "anticipi"
 - "amount": importo numerico (estrai dal testo, converti parole come "quindici" in 15.0)
-- "date": data in formato YYYY-MM-DD (opzionale, se l'utente dice "ieri" usa la data di ieri, "15 aprile" usa quel giorno dell'anno corrente, se non specificata ometti il campo)
-- "subjectName": nome del soggetto (per income/expense/anticipi)
-- "fromSubjectName": soggetto di origine (per transfer)
-- "toSubjectName": soggetto di destinazione (per transfer)
+- "date": data in formato YYYY-MM-DD (opzionale)
 - "entryName": nome della voce (per income/expense/anticipi, opzionale)
-- "note": nota libera (opzionale, includi dettagli come luogo, motivo, chi ha partecipato)
+- "note": nota libera (opzionale, includi dettagli come luogo, motivo)
 - "confidence": numero da 0.0 a 1.0 indicante la confidenza del parsing
 
 REGOLE:
-1. Fai un match FUZZY sui nomi: se l'utente dice "max" trova "Massimo", se dice "cibo" trova la voce nel gruppo "Spese alimentari"
+1. NON includere mai "subjectName", "fromSubjectName", "toSubjectName" - il soggetto verrà assegnato automaticamente
 2. "entrata" o "incasso" → type: "income"
 3. "uscita", "spesa", "pagato" → type: "expense"
 4. "trasferisco", "giro", "passo" → type: "transfer"
 5. "anticipo", "anticipato" → type: "anticipi"
 6. L'importo può essere detto come numero ("15") o parola ("quindici", "venti")
 7. Se il testo menziona un gruppo (es. "spese casa") cerca voci in quel gruppo
-8. Per la data: "oggi" = data odierna, "ieri" = ieri, "15 aprile" = 2026-04-15, "mese scorso" = stesso giorno mese precedente
+8. Per la data: "oggi" = data odierna, "ieri" = ieri, "15 aprile" = data specifica
 
-Esempio output: {"type": "expense", "amount": 15.0, "date": "2026-05-05", "subjectName": "Massimo", "entryName": "Pranzo", "note": "pranzo di lavoro", "confidence": 0.9}
+Esempio output: {"type": "expense", "amount": 30.0, "date": "2026-05-12", "entryName": "Danza", "note": "acconto per saggio all'operà di Parigi", "confidence": 0.9}
 ''';
 
     final response = await http.post(
@@ -247,24 +247,14 @@ Esempio output: {"type": "expense", "amount": 15.0, "date": "2026-05-05", "subje
       date = DateTime.tryParse(dateStr);
     }
 
-    // Match subject for income/expense/anticipi
-    final subjectName = parsed['subjectName'] as String?;
-    if (subjectName != null && subjectName.isNotEmpty) {
-      final match = _fuzzyFindSubject(subjectName, subjects);
-      subjectId = match?.id;
+    // Usa il soggetto predefinito per income/expense/anticipi
+    // Per i transfer, non vengono più parsati i soggetti dal testo vocale
+    if (type != TransactionType.transfer && defaultSubjectId != null) {
+      subjectId = defaultSubjectId;
     }
 
-    // Match from/to subjects for transfer
-    final fromName = parsed['fromSubjectName'] as String?;
-    if (fromName != null && fromName.isNotEmpty) {
-      final match = _fuzzyFindSubject(fromName, subjects);
-      fromSubjectId = match?.id;
-    }
-    final toName = parsed['toSubjectName'] as String?;
-    if (toName != null && toName.isNotEmpty) {
-      final match = _fuzzyFindSubject(toName, subjects);
-      toSubjectId = match?.id;
-    }
+    // Match from/to subjects for transfer (rimosso parsing vocale)
+    // I transfer vocale dovrebbero essere gestiti manualmente
 
     // Match entry
     final entryName = parsed['entryName'] as String?;

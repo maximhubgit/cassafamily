@@ -28,6 +28,7 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen> with RouteAware {
   late int _selectedMonth;
   late int _selectedYear;
+  bool _showBalanceCard = false;
 
   @override
   void initState() {
@@ -35,6 +36,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with RouteAware {
     final now = DateTime.now();
     _selectedMonth = now.month;
     _selectedYear = now.year;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() => _showBalanceCard = true);
+    });
   }
 
   @override
@@ -290,7 +294,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with RouteAware {
                                             .fold(0.0, (acc, t) => acc + t.amount);
                                         final subjectBalance = sIncome - sExpense + sTransferIn - sTransferOut;
 
-                                        return _buildSubjectCard(context, s, subjectBalance, subjectTransactions.length);
+                                        final delay = (index * 100).clamp(0, 500);
+                                        return TweenAnimationBuilder<double>(
+                                          tween: Tween(begin: 0, end: 1),
+                                          duration: Duration(milliseconds: 300 + delay),
+                                          curve: Curves.easeOutCubic,
+                                          builder: (context, value, child) {
+                                            return Transform.scale(
+                                              scale: 0.8 + (0.2 * value),
+                                              child: Opacity(
+                                                opacity: value,
+                                                child: child,
+                                              ),
+                                            );
+                                          },
+                                          child: _buildSubjectCard(context, s, subjectBalance, subjectTransactions.length),
+                                        );
                                       },
                                     ),
                             ),
@@ -347,13 +366,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with RouteAware {
     double anticipi,
     double balance,
   ) {
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: InkWell(
-        onTap: () => context.push('/all-transactions'),
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 600),
+      curve: Curves.easeOutCubic,
+      builder: (context, value, child) {
+        return Transform.translate(
+          offset: Offset(0, 20 * (1 - value)),
+          child: Opacity(
+            opacity: value,
+            child: child,
+          ),
+        );
+      },
+      child: Card(
+        elevation: 4,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: InkWell(
+          onTap: () => context.push('/all-transactions'),
         borderRadius: BorderRadius.circular(16),
         child: Padding(
           padding: const EdgeInsets.all(12),
@@ -476,6 +508,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with RouteAware {
           ),
         ),
       ),
+    ),
     );
   }
 
@@ -554,6 +587,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with RouteAware {
               final subjectsList = ref.read(subjectsProvider).valueOrNull ?? [];
               final entries = ref.read(entriesProvider).valueOrNull ?? [];
               final groups = ref.read(groupsProvider).valueOrNull ?? [];
+              final defaultSubjectId = ref.read(defaultSubjectProvider);
               if (subjectsList.isEmpty) return;
               final result = await showDialog<VoiceTransactionResult>(
                 context: context,
@@ -561,11 +595,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with RouteAware {
                   subjects: subjectsList,
                   entries: entries,
                   groups: groups,
-                  preselectedSubjectId: null,
+                  defaultSubjectId: defaultSubjectId,
                 ),
               );
               if (result != null && !result.isError && context.mounted) {
-                _saveVoiceTransaction(context, ref, result);
+                context.push('/all-transactions', extra: result);
               }
             },
           ),
@@ -574,40 +608,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with RouteAware {
         ],
       ),
     );
-  }
-
-  void _saveVoiceTransaction(
-    BuildContext context,
-    WidgetRef ref,
-    VoiceTransactionResult voiceResult,
-  ) {
-    final firebaseService = ref.read(firebaseServiceProvider);
-    final now = DateTime.now();
-    final selectedDate = voiceResult.date ??
-        ((now.year == DateTime.now().year && now.month == DateTime.now().month)
-            ? DateTime(now.year, now.month, now.day)
-            : DateTime(now.year, now.month + 1, 0));
-
-    final transaction = AppTransaction(
-      id: FirebaseFirestore.instance.collection('transactions').doc().id,
-      type: voiceResult.type,
-      amount: voiceResult.amount,
-      date: selectedDate,
-      subjectId: voiceResult.type == TransactionType.transfer ? null : voiceResult.subjectId,
-      fromSubjectId: voiceResult.type == TransactionType.transfer ? voiceResult.fromSubjectId : null,
-      toSubjectId: voiceResult.type == TransactionType.transfer ? voiceResult.toSubjectId : null,
-      entryId: voiceResult.type == TransactionType.transfer ? null : voiceResult.entryId,
-      note: voiceResult.note?.isNotEmpty == true ? voiceResult.note : null,
-      createdAt: DateTime.now(),
-    );
-
-    firebaseService.addTransaction(transaction).then((_) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Transazione salvata'), backgroundColor: Colors.green),
-        );
-      }
-    });
   }
 
   Widget _buildSubjectCard(BuildContext context, Subject subject, double balance, int txCount) {
@@ -679,58 +679,93 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with RouteAware {
   ) {
     final monthName = DateFormat('MMM yyyy', 'it_IT').format(DateTime(selectedYear, selectedMonth));
 
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: InkWell(
-        onTap: () => _pickMonthYear(context),
-        borderRadius: BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
-          child: Column(
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return AnimatedSlide(
+      offset: _showBalanceCard ? Offset.zero : const Offset(0, 0.2),
+      duration: const Duration(milliseconds: 500),
+      curve: Curves.easeOutCubic,
+      child: AnimatedOpacity(
+        opacity: _showBalanceCard ? 1.0 : 0.0,
+        duration: const Duration(milliseconds: 500),
+        child: Card(
+          elevation: 4,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: InkWell(
+            onTap: () => _pickMonthYear(context),
+            borderRadius: BorderRadius.circular(16),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+              child: Column(
                 children: [
                   Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Icon(Icons.calendar_today, size: 18, color: Theme.of(context).colorScheme.primary),
-                      const SizedBox(width: 8),
-                      Text(
-                        monthName,
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w500,
-                            ),
+                      Row(
+                        children: [
+                          Icon(Icons.calendar_today, size: 18, color: Theme.of(context).colorScheme.primary),
+                          const SizedBox(width: 8),
+                          Text(
+                            monthName,
+                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w500,
+                                ),
+                          ),
+                          const SizedBox(width: 4),
+                          Icon(Icons.arrow_drop_down, color: Theme.of(context).colorScheme.primary),
+                        ],
                       ),
-                      const SizedBox(width: 4),
-                      Icon(Icons.arrow_drop_down, color: Theme.of(context).colorScheme.primary),
+                      TweenAnimationBuilder<double>(
+                        tween: Tween(begin: 0, end: totalBalance),
+                        duration: const Duration(milliseconds: 800),
+                        curve: Curves.easeOutCubic,
+                        builder: (context, value, child) {
+                          Color getBalanceColor() {
+                            // Verde: -1300 ≤ saldo ≤ +5000
+                            if (value >= -1300 && value <= 5000) {
+                              return AppColors.incomeColor;
+                            }
+                            // Senape: -1600 ≤ saldo < -1301
+                            if (value >= -1600 && value < -1300) {
+                              return AppColors.mustardColor;
+                            }
+                            // Rosso: saldo < -1600 o saldo > +5000
+                            return AppColors.expenseColor;
+                          }
+                          return AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 300),
+                            transitionBuilder: (Widget child, Animation<double> animation) {
+                              return ScaleTransition(scale: animation, child: child);
+                            },
+                            child: Text(
+                              '€ ${value.toStringAsFixed(2)}',
+                              key: ValueKey<double>(value),
+                              style: TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                                fontStyle: FontStyle.italic,
+                                color: getBalanceColor(),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
                     ],
                   ),
-                  Text(
-                    '€ ${totalBalance.toStringAsFixed(2)}',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      fontStyle: FontStyle.italic,
-                      color: totalBalance >= 0 ? AppColors.incomeColor : AppColors.expenseColor,
-                    ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 16,
+                    runSpacing: 8,
+                    alignment: WrapAlignment.center,
+                    children: [
+                      _buildPercIndicator(context, totalBalance, yearAvgBalance, 'Anno', Icons.calendar_today),
+                      _buildPercIndicator(context, totalBalance, prevMonthBalance, 'Mese', Icons.arrow_back),
+                      _buildPercIndicator(context, totalBalance, twentyFourMonthAvg, '24m', Icons.date_range),
+                    ],
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 16,
-                runSpacing: 8,
-                alignment: WrapAlignment.center,
-                children: [
-                  _buildPercIndicator(context, totalBalance, yearAvgBalance, 'Anno', Icons.calendar_today),
-                  _buildPercIndicator(context, totalBalance, prevMonthBalance, 'Mese', Icons.arrow_back),
-                  _buildPercIndicator(context, totalBalance, twentyFourMonthAvg, '24m', Icons.date_range),
-                ],
-              ),
-            ],
+            ),
           ),
         ),
       ),

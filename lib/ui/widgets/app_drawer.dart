@@ -130,13 +130,14 @@ class AppDrawer extends ConsumerWidget {
               final entries = ref.read(entriesProvider).valueOrNull ?? [];
               final groups = ref.read(groupsProvider).valueOrNull ?? [];
               if (subjectsList.isEmpty) return;
+              final defaultSubjectId = ref.read(defaultSubjectProvider);
               final result = await showDialog<VoiceTransactionResult>(
                 context: context,
                 builder: (dialogContext) => VoiceTransactionDialog(
                   subjects: subjectsList,
                   entries: entries,
                   groups: groups,
-                  preselectedSubjectId: null,
+                  defaultSubjectId: defaultSubjectId,
                 ),
               );
               if (result != null && !result.isError && context.mounted) {
